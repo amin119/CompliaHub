@@ -1,0 +1,22 @@
+# Python
+backend/.venv/
+**/__pycache__/
+*.pyc
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Env files with real secrets (keep the .env.example templates)
+.env
+.env.local
+backend/.env
+frontend/.env.local
+
+# Docker bind-mount data (if we ever switch from named volumes)
+**/data/
+
+# OS/editor
+.DS_Store
+Thumbs.db
