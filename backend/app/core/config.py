@@ -17,18 +17,24 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
 
-    database_url: str
-    redis_url: str
+    # Defaults match docker-compose.yml's dev credentials — not real secrets,
+    # so the app and test suite work out of the box without a .env file (e.g.
+    # in CI, or right after a fresh clone). Real deployments override via env
+    # vars or a backend/.env.
+    database_url: str = (
+        "postgresql://compliancegraph:compliancegraph_dev@localhost:5432/compliancegraph"
+    )
+    redis_url: str = "redis://localhost:6379/0"
 
-    neo4j_uri: str
-    neo4j_user: str
-    neo4j_password: str
+    neo4j_uri: str = "bolt://localhost:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = "compliancegraph_dev"
 
-    qdrant_url: str
+    qdrant_url: str = "http://localhost:6333"
 
-    minio_endpoint: str
-    minio_access_key: str
-    minio_secret_key: str
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str = "compliancegraph"
+    minio_secret_key: str = "compliancegraph_dev"
     minio_secure: bool = False
 
     cors_origins: list[str] = ["http://localhost:3000"]
