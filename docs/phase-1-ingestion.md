@@ -151,6 +151,24 @@ backend/
    `test_documents_api.py` tests additionally run (not skip) once the stack
    from steps 1–2 is up.
 
+## Refactor: extracted Celery task boilerplate
+
+Done alongside a Phase 2 DIP fix (see `docs/phase-2-vector-layer.md`'s
+"Refactor" section for the full rationale). `app/tasks/ingestion.py`'s three
+tasks (`parse_document_task`, `chunk_document_task`, `embed_chunks_task`)
+each repeated the same skeleton: open a session, load the `Document`,
+create+track a `ProcessingJob`, commit, wrap the real work with `_fail()` on
+exception, mark the job successful, final commit, close the session — a DRY
+violation. Extracted into one `pipeline_stage(document_id, task_name,
+in_progress_status)` context manager, yielding `(db, document)`; each task
+body now contains only the logic unique to that stage. Preserves the exact
+original commit/rollback ordering — a failure before the first commit (e.g.
+the document not existing) still isn't caught by `_fail`, matching prior
+behavior. Covered by a dedicated `tests/test_pipeline_stage.py` (infra-gated,
+same pattern as the other integration tests) in addition to the existing
+full-chain test in `test_documents_api.py`, which still passes unchanged —
+proving the refactor didn't alter observable behavior.
+
 ## What Phase 2 needs from here
 
 The `chunks` table (`text`, `clause_number`, `path`) is Phase 2's entire

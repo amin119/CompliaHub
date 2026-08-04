@@ -1,5 +1,5 @@
 import time
-from typing import Literal
+from typing import Literal, Protocol
 
 import voyageai
 from voyageai.error import RateLimitError
@@ -26,9 +26,52 @@ _MAX_RETRIES = 5
 _RETRY_BASE_DELAY_SECONDS = 5.0
 
 
-def _token_aware_batches(
-    client: voyageai.Client, texts: list[str], model: str
-) -> list[list[str]]:
+class RateLimitExceeded(Exception):
+    """Our own abstraction of "the embedding provider rate-limited us" — the
+    retry logic below catches this, not a Voyage-specific exception type, so
+    it doesn't depend on which provider is behind `EmbeddingClient`.
+    """
+
+
+class EmbeddingClient(Protocol):
+    """The narrow interface this module actually needs, expressed in plain
+    Python return shapes rather than a specific SDK's response objects. This
+    is the seam that makes `embed_texts` testable with a fake client instead
+    of only ever being exercisable via a real network call.
+    """
+
+    def embed(
+        self, texts: list[str], model: str, input_type: str
+    ) -> list[list[float]]: ...
+
+    def count_tokens(self, texts: list[str], model: str) -> int: ...
+
+
+class _VoyageEmbeddingClient:
+    """Adapter around voyageai.Client: unwraps its response object to a plain
+    list of vectors, and translates its RateLimitError into our own
+    RateLimitExceeded — this is the one place that knows Voyage's SDK shape.
+    """
+
+    def __init__(self, api_key: str) -> None:
+        self._client = voyageai.Client(api_key=api_key)
+
+    def embed(self, texts: list[str], model: str, input_type: str) -> list[list[float]]:
+        try:
+            result = self._client.embed(texts, model=model, input_type=input_type)
+        except RateLimitError as exc:
+            raise RateLimitExceeded(str(exc)) from exc
+        return result.embeddings
+
+    def count_tokens(self, texts: list[str], model: str) -> int:
+        return self._client.count_tokens(texts, model=model)
+
+
+def get_voyage_client() -> EmbeddingClient:
+    return _VoyageEmbeddingClient(api_key=get_settings().voyage_api_key)
+
+
+def _token_aware_batches(client: EmbeddingClient, texts: list[str], model: str) -> list[list[str]]:
     """Groups texts so each batch stays under both the per-call text-count cap
     and an approximate per-minute token budget. `count_tokens` runs Voyage's
     tokenizer locally — it does not itself count against the API rate limit,
@@ -55,13 +98,12 @@ def _token_aware_batches(
 
 
 def _embed_with_retry(
-    client: voyageai.Client, batch: list[str], model: str, input_type: str
+    client: EmbeddingClient, batch: list[str], model: str, input_type: str
 ) -> list[list[float]]:
     for attempt in range(_MAX_RETRIES):
         try:
-            result = client.embed(batch, model=model, input_type=input_type)
-            return result.embeddings
-        except RateLimitError:
+            return client.embed(batch, model=model, input_type=input_type)
+        except RateLimitExceeded:
             if attempt == _MAX_RETRIES - 1:
                 raise
             # No Retry-After header is reliably present on Voyage's 429s, so
@@ -71,7 +113,11 @@ def _embed_with_retry(
     raise AssertionError("unreachable")  # loop always returns or raises above
 
 
-def embed_texts(texts: list[str], input_type: Literal["document", "query"]) -> list[list[float]]:
+def embed_texts(
+    texts: list[str],
+    input_type: Literal["document", "query"],
+    client: EmbeddingClient | None = None,
+) -> list[list[float]]:
     """Embed a list of texts with Voyage. `input_type` matters: Voyage's
     embed models are trained with distinct prompts for indexed documents vs.
     search queries, so passing the wrong one measurably hurts retrieval
@@ -81,12 +127,16 @@ def embed_texts(texts: list[str], input_type: Literal["document", "query"]) -> l
     limits (see `_MAX_TOKENS_PER_BATCH` for the empirically-found per-request
     cap) — without this, embedding a real document's worth of chunks in one
     burst reliably trips a 429 on a non-billing account.
+
+    `client` defaults to the real Voyage-backed adapter; pass a fake
+    `EmbeddingClient` in tests to exercise the batching/retry logic without
+    a network call.
     """
     if not texts:
         return []
 
+    client = client or get_voyage_client()
     settings = get_settings()
-    client = voyageai.Client(api_key=settings.voyage_api_key)
 
     batches = _token_aware_batches(client, texts, settings.voyage_model)
 

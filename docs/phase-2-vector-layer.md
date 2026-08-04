@@ -207,6 +207,50 @@ verification from an earlier attempt is in project history). The iso-27001
 run above supersedes the "not yet run" state this section previously
 described.
 
+## Refactor: dependency injection for testability
+
+A SOLID/DRY review after the live-verification pass above found a concrete
+DIP violation: `embedding.py`, `reranking.py`, and `answer_generation.py`
+each constructed their own concrete SDK client (`voyageai.Client`,
+`cohere.ClientV2`, `openai.OpenAI`) inline, with no seam to substitute a fake
+in tests. That's precisely why 16/16 tests passed while three real bugs
+(missing opencv libs, Voyage's real token cap, the host TLS cert issue —
+above) only surfaced via live testing: the tests monkeypatched entire
+functions (`monkeypatch.setattr(embedding, "embed_texts", ...)`), never
+exercising the real batching/retry logic at all.
+
+Fixed uniformly across all three modules: a `Protocol` expressing the narrow
+interface each module actually needs (in plain Python return shapes, not the
+SDK's own response objects — e.g. `AnswerClient.create_completion(...) ->
+str`, not OpenAI's nested `.choices[0].message.content`), a thin adapter
+class satisfying that Protocol per real SDK (`_VoyageEmbeddingClient`,
+`_CohereRerankClient`, `_OpenAIAnswerClient` — this is also where each SDK's
+own exception type gets translated into our own, e.g. Voyage's
+`RateLimitError` → our `RateLimitExceeded`, so the retry logic in
+`_embed_with_retry` doesn't depend on which provider is behind it), a
+`get_x_client()` factory building the real adapter, and an optional `client`
+parameter (default `None`, falls back to the factory) on each public
+function. `vector_store.py`/`storage.py` were **not** touched — they already
+injected their client as an explicit parameter, just typed concrete rather
+than `Protocol`; a much smaller gap.
+
+New tests (`test_embedding.py`, `test_reranking.py`,
+`test_answer_generation.py`) use fake clients to exercise logic that
+previously could only be verified by a real network call: the retry/backoff
+loop recovering from simulated rate limits, the token/text-count batch caps,
+and — new coverage that didn't exist at all before — the actual prompt and
+citation-numbering text `answer_generation._format_context` builds. All run
+in under 5 seconds with zero network calls or live infra, unlike the
+existing `test_documents_api.py`/`test_query_api.py` integration tests
+(left as-is; they verify endpoint plumbing, not these modules' internals).
+
+Separately, `app/tasks/ingestion.py`'s three Celery tasks repeated the same
+~15-line skeleton (open session, load `Document`, create+track a
+`ProcessingJob`, commit, wrap the real work with `_fail()`, mark success,
+final commit, close) — a DRY violation. Extracted into one `pipeline_stage`
+context manager; each task body now contains only its unique logic. See
+`docs/phase-1-ingestion.md` for detail, since this touches Phase 1's code.
+
 ## What Phase 3 needs from here
 
 Phase 3 (entity/relation extraction into Neo4j) reads from the same `chunks`
