@@ -39,6 +39,20 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # Phase 2 — vector layer. Empty-string defaults keep the app booting
+    # without a .env, same as every other setting; real embed/rerank/answer
+    # calls fail loudly at call time if a key is missing, not at startup.
+    voyage_api_key: str = ""
+    voyage_model: str = "voyage-law-2"
+    cohere_api_key: str = ""
+    cohere_rerank_model: str = "rerank-v3.5"
+    # Grok (xAI) exposes an OpenAI-compatible Chat Completions API — answer
+    # generation uses the `openai` SDK pointed at xAI's base_url instead of a
+    # dedicated xAI SDK.
+    grok_api_key: str = ""
+    grok_base_url: str = "https://api.x.ai/v1"
+    answer_model: str = "grok-4.5"
+
 
 @lru_cache
 def get_settings() -> Settings:

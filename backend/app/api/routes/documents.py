@@ -10,7 +10,7 @@ from app.models.document import Chunk, Document
 from app.schemas.document import ChunkResponse, DocumentResponse
 from app.services import storage
 from app.services.hashing import sha256_bytes
-from app.tasks.ingestion import chunk_document_task, parse_document_task
+from app.tasks.ingestion import chunk_document_task, embed_chunks_task, parse_document_task
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -45,6 +45,7 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db))
     chain(
         parse_document_task.s(str(document.id)),
         chunk_document_task.s(str(document.id)),
+        embed_chunks_task.s(str(document.id)),
     ).apply_async()
 
     return document

@@ -15,6 +15,23 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
+# opencv-python (pulled in transitively by Docling's table-structure model)
+# dynamically links against X11/GL runtime libraries even though we only ever
+# use it headlessly — python:3.12-slim doesn't ship them, so importing cv2
+# crashes with "libxcb.so.1: cannot open shared object file" the first time a
+# PDF with the table-structure model actually loads. Placed after `uv sync`
+# so this layer doesn't invalidate the (very expensive, torch-sized) dependency
+# cache above.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libxcb1 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 
 CMD ["uv", "run", "celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info"]

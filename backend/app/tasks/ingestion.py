@@ -6,7 +6,7 @@ from sqlalchemy_utils import Ltree
 
 from app.core.db import SessionLocal
 from app.models.document import Chunk, Document, ProcessingJob
-from app.services import chunking, storage
+from app.services import chunking, embedding, storage, vector_store
 from app.services.parsing import ParsedSection, parse_document
 from app.tasks.celery_app import celery_app
 
@@ -126,6 +126,54 @@ def chunk_document_task(parsed_tree: dict, document_id: str) -> None:
                 db.add(chunk)
                 db.flush()
                 path_to_id[record.path] = chunk.id
+
+            # Chunking is no longer the last stage — embedding follows in the
+            # chain, so "ready" is set there instead.
+            document.status = "embedding"
+        except Exception as exc:
+            _fail(db, document, job, exc)
+            raise
+
+        job.status = "success"
+        job.finished_at = _now()
+        db.commit()
+    finally:
+        db.close()
+
+
+@celery_app.task(name="ingestion.embed_chunks")
+def embed_chunks_task(_chunk_result: None, document_id: str) -> None:
+    """Stage 3: embed every chunk of this document with Voyage and upsert the
+    vectors into Qdrant, keyed by chunk id. Last stage — marks the document
+    `ready` on success.
+
+    `_chunk_result` is unused — Celery's `chain()` always feeds the previous
+    task's return value as the leading positional arg (`chunk_document_task`
+    returns `None`), same pattern `chunk_document_task` itself uses for
+    `parsed_tree` from stage 1.
+    """
+    db = SessionLocal()
+    try:
+        document = db.get(Document, uuid.UUID(document_id))
+        if document is None:
+            raise ValueError(f"document {document_id} not found")
+
+        job = ProcessingJob(
+            document_id=document.id, task_name="embed", status="running", started_at=_now()
+        )
+        db.add(job)
+        db.commit()
+
+        try:
+            chunks = (
+                db.query(Chunk)
+                .filter(Chunk.document_id == document.id)
+                .order_by(Chunk.path)
+                .all()
+            )
+            vectors = embedding.embed_texts([chunk.text for chunk in chunks], input_type="document")
+            client = vector_store.get_qdrant_client()
+            vector_store.upsert_chunks(client, chunks, vectors)
 
             document.status = "ready"
         except Exception as exc:

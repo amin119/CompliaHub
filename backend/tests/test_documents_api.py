@@ -7,7 +7,7 @@ from sqlalchemy import text
 
 from app.core.db import engine
 from app.main import app
-from app.services import storage
+from app.services import embedding, storage, vector_store
 from app.tasks.celery_app import celery_app
 
 
@@ -34,13 +34,27 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(autouse=True, scope="module")
 def _eager_celery():
-    # Runs the parse->chunk chain synchronously in-process, so the test can
-    # assert on the final state without a live worker or polling.
+    # Runs the parse->chunk->embed chain synchronously in-process, so the
+    # test can assert on the final state without a live worker or polling.
     celery_app.conf.task_always_eager = True
     celery_app.conf.task_eager_propagates = True
     yield
     celery_app.conf.task_always_eager = False
     celery_app.conf.task_eager_propagates = False
+
+
+@pytest.fixture(autouse=True)
+def _mock_embed_stage(monkeypatch):
+    """This module tests the parse+chunk pipeline, not embeddings — mocking
+    Voyage/Qdrant here means the test needs no real API key and no reachable
+    Qdrant, while the embed stage still runs (so `document.status` still
+    ends up `ready`, matching real pipeline behavior end to end).
+    """
+    def _fake_embed_texts(texts, input_type):
+        return [[0.0] * embedding.EMBEDDING_DIM for _ in texts]
+
+    monkeypatch.setattr(embedding, "embed_texts", _fake_embed_texts)
+    monkeypatch.setattr(vector_store, "upsert_chunks", lambda client, chunks, vectors: None)
 
 
 def _sample_docx_bytes() -> bytes:
