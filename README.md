@@ -68,6 +68,9 @@ agent can be tested with mocked retrieval, and so on.
 | Cache / queue | Redis + Celery |
 | Object storage | MinIO (S3-compatible) |
 | Document parsing | Docling (structure-aware PDF/DOCX) |
+| Embeddings | Voyage (`voyage-law-2`) |
+| Reranking | Cohere Rerank (`rerank-v3.5`) |
+| Answer generation | Grok (xAI), via the OpenAI-compatible SDK |
 | Agent orchestration | LangGraph *(Phase 5)* |
 | Evaluation | RAGAS *(Phase 7)* |
 
@@ -88,7 +91,7 @@ agent can be tested with mocked retrieval, and so on.
 |---|---|---|
 | 0 — Environment & repo setup | Done | [docs/phase-0-setup.md](docs/phase-0-setup.md) |
 | 1 — Document ingestion pipeline | Done | [docs/phase-1-ingestion.md](docs/phase-1-ingestion.md) |
-| 2 — Vector layer | Planned | [docs/phase-2-vector-layer.md](docs/phase-2-vector-layer.md) |
+| 2 — Vector layer | Done | [docs/phase-2-vector-layer.md](docs/phase-2-vector-layer.md) |
 | 3 — Entity & relation extraction | Planned | [docs/phase-3-extraction.md](docs/phase-3-extraction.md) |
 | 4 — Graph retrieval | Planned | [docs/phase-4-graph-retrieval.md](docs/phase-4-graph-retrieval.md) |
 | 5 — Agentic orchestration | Planned | [docs/phase-5-agentic-loop.md](docs/phase-5-agentic-loop.md) |

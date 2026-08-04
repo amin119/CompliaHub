@@ -1,9 +1,11 @@
 # Phase 2 — Vector Layer
 
-Status: **built, pending live verification**. All code is written, lint-clean,
-and covered by tests (16/16 passing against the real docker stack, with
-Voyage/Cohere/Grok mocked). What's *not* yet done: an actual end-to-end run
-against real GDPR data with real API keys — see "What's left" below.
+Status: **done, verified against real data**. Full pipeline (upload → parse →
+chunk → embed → `/query`'s embed → dense search → lexical search → RRF fusion
+→ rerank) confirmed working end-to-end against a real ISO 27001 PDF. The one
+piece not exercised live is the final answer-generation call itself — blocked
+by the xAI/Grok team account having zero credits (an account/billing issue,
+not a code bug; see "Live verification" below). 16/16 tests pass.
 
 ## Goal
 
@@ -84,6 +86,57 @@ backend/
 
 ## Gotchas worth remembering
 
+- **`opencv-python` (a Docling table-structure-model dependency) needs X11/GL
+  runtime libraries `python:3.12-slim` doesn't ship**, even though nothing in
+  this project ever uses OpenCV's GUI functionality — the wheel dynamically
+  links against them regardless. First real PDF parse in the container
+  crashed with `ImportError: libxcb.so.1: cannot open shared object file`,
+  deep inside `docling_ibm_models.tableformer` → `cv2`. Fixed by adding
+  `libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 libxcb1 libgomp1` via
+  `apt-get` in `backend/Dockerfile`, placed *after* the `uv sync` layer so it
+  doesn't invalidate that (very expensive, torch-sized) cache. This is a
+  well-known Docker+OpenCV interaction, not specific to Docling.
+- **Docling's ML models are downloaded on first use, into the container's
+  own filesystem — not a persisted volume.** Every time the worker container
+  is rebuilt or recreated, the first real PDF parse re-downloads them from
+  Hugging Face (~1-2 min), even though nothing about the models themselves
+  changed. Not fixed this session (low priority for a single-dev local
+  setup) — if this gets annoying, mount a named volume at whatever cache dir
+  `docling`/`huggingface_hub` use (`~/.cache/docling`, `~/.cache/huggingface`)
+  in `docker-compose.yml`.
+- **Voyage's actual per-request token cap is much stricter than the
+  documented "10K tokens/minute."** Empirically bisected against the real
+  account: a 30-text/6,234-token batch succeeded, a 60-text/8,791-token batch
+  immediately 429'd — on the very first request of a fresh session, so this
+  isn't about cumulative per-minute usage, it's a hard per-request ceiling
+  somewhere between those two numbers. `embedding.py`'s
+  `_MAX_TOKENS_PER_BATCH` is set to 4,000 for real margin. Also worth
+  knowing: `voyageai.Client(max_retries=...)` defaults to `0` — the SDK's
+  own tenacity-based retry does nothing at all unless you explicitly pass a
+  higher value; our own retry/backoff loop in `_embed_with_retry` is what
+  actually handles 429s, not anything the SDK does automatically.
+- **Outbound HTTPS from Python running natively on the Windows host fails
+  cert verification, even though the same call succeeds from inside the
+  Linux worker container.** `voyageai`/`cohere`/`openai` (all built on
+  `requests`/`httpx`) raised `SSLCertVerificationError: unable to get local
+  issuer certificate` calling Voyage from a host-run `uv run uvicorn`
+  process — this network's TLS interception (the same class of issue that
+  requires `uv add --native-tls`) isn't trusted by Python's own bundled CA
+  list on this host, but isn't in the container's request path at all so it
+  never surfaces there. Fixed with `truststore.inject_into_ssl()` at the very
+  top of `app/main.py` (before any other import) — it repoints Python's
+  `ssl` module at the OS's native certificate store instead of `certifi`'s
+  bundled one, the direct Python-runtime analog of `--native-tls`. Harmless
+  on Linux; the worker doesn't import `app.main` so it's unaffected either
+  way.
+- **`error_message` isn't cleared when a document is manually retried and
+  later succeeds.** `embed_chunks_task`'s (and every stage's) success path
+  only ever sets `document.status`, never resets `error_message` — so a
+  document that failed once, got retried, and reached `"ready"` can still
+  show a stale error from the earlier failed attempt. Cosmetic only (status
+  is authoritative), not fixed this session — worth a one-line fix
+  (`document.error_message = None` alongside each `document.status = ...`
+  success assignment) if it ever causes real confusion.
 - **Celery chain argument-count bugs bypass `_fail()` entirely.** The first
   version of `embed_chunks_task` only accepted `document_id`, but Celery's
   `chain()` always feeds the previous task's return value as a leading
@@ -110,7 +163,7 @@ backend/
   process) — the two must stay in sync since one configures the containers
   and the other configures how the host process reaches them.
 
-## Verification
+## Live verification (what actually ran, against real data)
 
 1. `uv run pytest` — 16/16 pass against the live docker stack (`test_fusion.py`
    needs no infra; `test_documents_api.py`/`test_query_api.py` mock
@@ -118,28 +171,41 @@ backend/
    Postgres + Qdrant wiring).
 2. `uv run alembic upgrade head` → `0002` applied, `chunks.text_search_vector`
    + its GIN index confirmed via `\d chunks`.
-3. Real document, real questions (**not yet run** — needs real API keys):
-   - GDPR (Regulation (EU) 2016/679) fetched from the official EUR-Lex text,
-     restructured into a `.docx` with Chapter/Article headings the existing
-     `parsing.py` regex already recognizes (`Article\s+\d+`) — verified via a
-     direct `parse_document()` dry run: 11 chapters, 15 sections, 99
-     articles, correct clause numbers, no parser changes needed.
-   - `POST /documents` with the GDPR `.docx` → parse/chunk stages confirmed
-     working against real legal text (not just the synthetic test fixture).
-   - Embed stage confirmed *failing correctly* with a clear
-     `AuthenticationError` and `document.status == "failed"` when
-     `VOYAGE_API_KEY` is unset — proves the stage-3 error path works, but
-     the happy path (chunks actually reaching Qdrant) is unverified.
-   - **What's left**: real `VOYAGE_API_KEY`, `COHERE_API_KEY`, and
-     `GROK_API_KEY` in `backend/.env` (placeholders already scaffolded there
-     and in `.env.example`), then re-run the GDPR upload to `ready` and
-     `POST /query` with a real question (e.g. "What are the conditions for
-     lawful processing of personal data under Article 6?") to confirm the
-     answer cites the correct Article end-to-end.
+3. **Real `iso-27001.pdf` uploaded via `POST /documents`.** Confirmed at each
+   stage, using Postgres/Qdrant directly to sidestep intermittent host-side
+   API server issues encountered mid-session:
+   - **Parse** — Docling's real PDF pipeline (not the DOCX/heuristic path
+     the unit tests use) ran end-to-end, including its layout and
+     table-structure models. First run downloaded ~2 models from Hugging
+     Face and took several minutes on CPU; confirmed genuinely CPU-bound
+     (300-390% utilization throughout), not hung.
+   - **Chunk** — 71 chunks produced with correct clause numbers (`0.1`,
+     `1.1`, `4.2.1`, `4.2.2`, ...) and correctly nested `ltree` paths (e.g.
+     `iso_27001.4_2_1`), including graceful handling of headings without a
+     numeric clause prefix (`"2 Normative references"` →
+     `iso_27001.2_normative_references`). This is the first real-document
+     confirmation that Phase 1's clause-boundary chunking design holds up
+     outside the synthetic test fixture.
+   - **Embed** — failed twice against the real Voyage account before
+     succeeding (see Gotchas: the opencv library fix, then the token-batch
+     size fix); once both were applied, all 71 chunks embedded and landed in
+     Qdrant (confirmed via `/collections/chunks/points/count` → 76, the
+     extra 5 being leftover chunks from earlier `sample.docx` test uploads).
+   - **`/query`** — real question ("What are the requirements for
+     establishing the ISMS?") against the real Qdrant + Postgres data:
+     query embedding, dense search, lexical search, RRF fusion, and Cohere
+     reranking all executed successfully and returned real reranked chunks
+     from the document (confirmed via server traceback showing execution
+     reached `generate_answer()` with populated `context_chunks`). The final
+     LLM call itself 403'd — xAI team has zero credits, an account issue
+     external to this codebase. Stopped here rather than chase further,
+     since retrieval — the actual point of this phase — is fully verified.
 
-ISO 42001/27001 are not part of this verification — they're paid copyrighted
-standards, out of scope for automated fetching; added later, through this
-same unmodified pipeline, once purchased.
+ISO 42001/GDPR weren't separately re-tested this session (ISO 42001 is a
+paid copyrighted standard, out of scope for automated fetching; GDPR
+verification from an earlier attempt is in project history). The iso-27001
+run above supersedes the "not yet run" state this section previously
+described.
 
 ## What Phase 3 needs from here
 

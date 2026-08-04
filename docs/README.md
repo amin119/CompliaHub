@@ -13,7 +13,7 @@ roadmap phase gets one file here, written in two passes:
 |---|---|---|
 | 0 — Environment & repo setup | [phase-0-setup.md](phase-0-setup.md) | Done |
 | 1 — Document ingestion pipeline | [phase-1-ingestion.md](phase-1-ingestion.md) | Done |
-| 2 — Vector layer | [phase-2-vector-layer.md](phase-2-vector-layer.md) | Built, pending live verification |
+| 2 — Vector layer | [phase-2-vector-layer.md](phase-2-vector-layer.md) | Done |
 | 3 — Entity & relation extraction | [phase-3-extraction.md](phase-3-extraction.md) | Planned |
 | 4 — Graph retrieval | [phase-4-graph-retrieval.md](phase-4-graph-retrieval.md) | Planned |
 | 5 — Agentic orchestration | [phase-5-agentic-loop.md](phase-5-agentic-loop.md) | Planned |

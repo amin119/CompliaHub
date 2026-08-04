@@ -20,6 +20,7 @@ dependencies = [
     "redis>=8.0.1",
     "sqlalchemy>=2.0.51",
     "sqlalchemy-utils>=0.42.1",
+    "truststore>=0.10.4",
     "uvicorn[standard]>=0.52.0",
     "voyageai>=0.3.6",
 ]
