@@ -1,11 +1,10 @@
 # Phase 3 — Entity & Relation Extraction
 
-Status: **Part 1 done and verified live** (ontology → extraction → caching →
-entity resolution → Neo4j loading). Part 2 (community detection + LLM
-community summaries) is **not started** — see "What's left" below. 51/51
-backend tests pass; the extraction pipeline was verified end-to-end against
-real Postgres + real Neo4j with a mocked LLM (a real key wasn't available yet
-during this build — see "Live verification").
+Status: **done and verified live, both parts.** Part 1 (ontology →
+extraction → caching → entity resolution → Neo4j loading) and Part 2
+(Leiden community detection + LLM community summaries) have both run
+end-to-end against the real ISO 27001 PDF with a real Gemini key — see
+"Live verification" and "Part 2 live verification" below for actual output.
 
 **Provider swap mid-build:** originally built against Anthropic Claude Haiku
 (the choice discussed and locked in before implementation started). Switched
@@ -248,23 +247,151 @@ moving `pipeline_stage` into its own dependency-free `app/tasks/pipeline.py`
 that `extraction.py` now imports from instead, and by moving
 `google-genai`/`python-igraph`/`leidenalg` into pyproject's `graph` optional
 extra — installed only in the new `worker-graph` image (queue `graph`,
-`-I app.tasks.extraction`).
+`-I app.tasks.extraction,app.tasks.community_detection`).
 
-## What's left (Part 2 — not built yet)
+**Gotcha hit while testing this live:** after editing `docker-compose.yml`
+to add `app.tasks.community_detection` to `worker-graph`'s `-I` flag,
+`docker compose up -d worker-graph` alone wasn't enough — it recreated the
+*container* from the still-old *image*, so the new task module wasn't in it
+at all (`ModuleNotFoundError`), and even after that, an image rebuilt from
+stale layers still had a worker running the old command until explicitly
+rebuilt (`ModuleNotFoundError` → `NotRegistered` as the symptom evolved).
+`docker compose up -d --build <service>` is the one command that actually
+guarantees "this container reflects the current Dockerfile *and* current
+source" — worth defaulting to it after any code or compose-file change
+during this kind of live testing, not just `up -d`.
 
-- **Community detection**: pull the graph via the `neo4j` driver into
-  `igraph`, run `leidenalg.find_partition`, write a `community_id` property
-  back onto each node. Library already installed and sanity-checked.
-- **LLM-generated summary per community** — the piece that actually enables
-  "global" questions (e.g. gap analysis across standards) per GraphRAG's
-  core design; reuses the same Gemini client pattern.
-- Both depend on Part 1's graph having real data in it first (i.e. a real
-  extraction run), so a natural next step once a real API key is available
-  and Part 1 has been exercised against the real corpus.
+## Part 2 — community detection & summarization
+
+Goal: cluster the graph into densely-connected groups of entities and have
+an LLM write a short summary of each — the actual "GraphRAG" trick, and
+what makes Phase 4's planned "global search" (query community summaries
+first, drill down) possible at all. Local search (start from one entity,
+walk N hops) can't answer "what are ISO 42001's main themes?" — that needs
+a bird's-eye view of the whole graph, not a walk from one node.
+
+### What was built
+
+```
+backend/app/
+├── services/
+│   ├── community_detection.py   # build_graph (Neo4j rows -> igraph), detect_communities (Leiden)
+│   └── community_summary.py     # SummaryClient Protocol, Gemini adapter, retry loop
+├── services/graph_store.py      # + fetch_all_relations, clear_communities, create_community, fetch_communities
+├── tasks/community_detection.py # detect_communities_task — corpus-wide, no document_id
+└── api/routes/communities.py    # POST /graph/communities/detect, GET .../status/{task_id}, GET /graph/communities
+```
+
+### Decisions made
+
+- **Flat, single-level partition — not hierarchical**, despite the roadmap's
+  literal "hierarchical clusters" wording. A deliberate scope-down for this
+  project's corpus size (a few hundred entities), same spirit as the
+  `chunk_hierarchy`-into-`ltree` and Neo4j-GDS-into-Python deviations from
+  earlier phases. Confirmed with the user before implementing rather than
+  assumed. Recursive re-partitioning of any oversized/mixed community is a
+  natural extension later if flat proves too coarse — nothing here would
+  need to be rewritten to add it.
+- **Corpus-wide, not per-document.** `fetch_all_relations` (new — unlike
+  `fetch_document_graph`) pulls every relation in the graph regardless of
+  which document produced it, because a community spanning ISO 27001 *and*
+  ISO 42001 entities is exactly the interesting case for cross-standard gap
+  analysis. Confirmed live: several of the 25 real communities below span
+  multiple source standards (ISO 27001, ISO/IEC 17799, ISO/IEC Guide
+  73:2002, ISO 9001/14001) in one cluster.
+- **`leidenalg.RBConfigurationVertexPartition`, `resolution_parameter=1.0`**
+  — leidenalg's tunable stand-in for plain modularity (equivalent to it at
+  resolution 1.0), chosen over the plain `ModularityVertexPartition` so the
+  granularity knob exists for later tuning without switching algorithms.
+- **Undirected graph, parallel edges collapsed into edge weight.** Community
+  structure only cares about "how strongly connected," not direction or
+  relation type — a relation independently stated across 5 chunks is
+  stronger evidence two entities belong together than one stated once.
+  Vertices are keyed by `(entity_type, name)`, not name alone, since
+  `canonical_name` is only unique *within* a label.
+- **`Community` is a first-class Neo4j node** (`:Community {id, title,
+  summary, entity_count}`, linked via `(:Entity)-[:IN_COMMUNITY]->(:Community)`),
+  not a bare `community_id` property — it needs to carry its own data (the
+  LLM summary now, a summary embedding for Phase 4 later), which a scalar
+  property can't hold.
+- **Full recompute every run**, via `clear_communities` (`DETACH DELETE`
+  every `Community` node) before rebuilding — same idempotent-rebuild
+  philosophy as the rest of the project; incremental community updates are
+  a genuinely hard problem not worth taking on at this scale.
+- **Singleton communities (one isolated entity, no relations) are skipped**
+  — Leiden still assigns every vertex to *some* community, but a "cluster"
+  of one entity isn't worth an LLM summary call. Confirmed live: of 54 raw
+  communities from the real ISO 27001 graph, 29 were singletons, skipped
+  for free.
+- **Same `Protocol` + adapter + retry-loop pattern as extraction**, applied
+  from the start (`SummaryClient`, `_GeminiSummaryClient`,
+  `SummaryRateLimited`) — deliberately *not* sharing code with
+  `_GeminiExtractionClient` despite the near-identical shape: different
+  system prompt, different schema, no shared call site. Factoring out a
+  common base for two call sites that only *happen* to look alike today
+  would be premature.
+- **No `pipeline_stage` for this task** — that context manager is keyed to
+  a single `Document`, and corpus-wide community detection has none.
+  Progress/failure is tracked via Celery's own result backend
+  (`AsyncResult`) instead, surfaced through `GET
+  /graph/communities/status/{task_id}`.
+- **Trigger: `POST /graph/communities/detect`, explicit and manual** — same
+  reasoning as Part 1's own trigger choice. Actively wrong to auto-run this
+  after every single document's extraction, since communities should
+  reflect the whole ingested corpus, not be rebuilt mid-ingestion.
+
+### Part 2 live verification
+
+Ran for real against the real ISO 27001 graph (199 relations from Part 1's
+live run) with the real Gemini key — no mocks. Result: **25 communities
+created, 29 singletons skipped**, ~5s apart per the same proactive-pacing
+pattern as extraction. Sample of the real output (largest communities):
+
+| Entities | Title |
+|---|---|
+| 32 | ISMS Governance and Operational Framework |
+| 20 | ISO 27001 Framework Structure and Governance |
+| 14 | Risk Management and Management Review Framework |
+| 11 | Network Security and Information Exchange Management |
+| 9 | Risk-Driven Control Implementation Framework |
+| 9 | Asset Management and Risk Impact Framework |
+| 8 | ISMS Audit and Compliance Management |
+| 8 | Human Resource Security and Compliance Framework |
+
+These read as genuinely coherent, correctly-themed clusters of ISO 27001
+content — strong validation that Leiden's connectivity-based clustering
+lines up with how a human would actually group these concepts, with no
+hand-tuning of the resolution parameter needed on the first real try.
+
+**Two things worth knowing, found live:**
+- **Gemini flash-lite occasionally emits `U+FFFD` (the Unicode replacement
+  character) mid-summary**, in place of what was almost certainly meant to
+  be an em-dash (`"security principles<0xEF><0xBF><0xBD>confidentiality,
+  integrity..."`). Confirmed via `repr()` that this is a real character in
+  the string, not a terminal display artifact — and confirmed via a fresh
+  identical-shape call that it doesn't reproduce deterministically, so it's
+  the model's own token-boundary artifact (a known small/quantized-model
+  failure mode around multi-byte punctuation), not a bug introduced by our
+  code (`response.text` is passed straight to `model_validate_json` with no
+  decoding step of our own in between). Cosmetic, rare, not fixed —
+  worth a `.replace("�", "-")` cleanup pass if it recurs often enough
+  to matter.
+- **The dev Neo4j graph mixes real corpus data with test fixtures.**
+  Several of the smaller (2-entity) real communities are visibly leftover
+  pytest fixture data (`Test Control`/`Test Risk` from
+  `test_extraction_api.py`, `API Test A`/`API Test B` from
+  `test_communities_api.py` itself) — because `fetch_all_relations` and
+  `fetch_all_entities` are corpus-wide by design, and this project's tests
+  never clean up after themselves (a deliberate, established convention —
+  see Phase 1's gotchas). Harmless for a solo learning project's shared dev
+  database, but a real reason a production deployment needs a genuinely
+  separate test environment/database, not just unique per-test names.
 
 ## What Phase 4 needs from here
 
-Phase 4 (graph retrieval) queries the entities/relations this phase writes
-into Neo4j, plus (once Part 2 exists) the community summaries for global
-search. The `chunk_id`/`document_id` provenance properties on every relation
-edge are what let a Phase 4 answer cite back to an exact clause.
+Phase 4 (graph retrieval) queries the entities/relations Part 1 writes into
+Neo4j for local search, plus Part 2's `Community` nodes and their `summary`
+text for global search. The `chunk_id`/`document_id` provenance properties
+on every relation edge are what let a Phase 4 answer cite back to an exact
+clause; `Community.summary` is what a global-search answer would start
+from before drilling into specific entities.

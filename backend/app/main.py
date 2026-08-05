@@ -12,7 +12,7 @@ truststore.inject_into_ssl()
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
-from app.api.routes import documents, extraction, health, query  # noqa: E402
+from app.api.routes import communities, documents, extraction, health, query  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 
 settings = get_settings()
@@ -34,3 +34,4 @@ app.include_router(health.router)
 app.include_router(documents.router)
 app.include_router(query.router)
 app.include_router(extraction.router)
+app.include_router(communities.router)

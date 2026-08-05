@@ -15,3 +15,14 @@ class GraphRelation(BaseModel):
 
 class DocumentGraphResponse(BaseModel):
     relations: list[GraphRelation]
+
+
+class CommunityResponse(BaseModel):
+    id: str
+    title: str
+    summary: str
+    entity_count: int
+
+
+class CommunityListResponse(BaseModel):
+    communities: list[CommunityResponse]

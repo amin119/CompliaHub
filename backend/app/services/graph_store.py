@@ -1,7 +1,24 @@
+from typing import NamedTuple
+
 from neo4j import Driver, GraphDatabase
 
 from app.core.config import get_settings
 from app.services.ontology import EntityType, RelationType
+
+
+class RelationEdge(NamedTuple):
+    """One relation, corpus-wide — the shape `fetch_all_relations` returns.
+    A plain tuple would work but with five positional fields of overlapping
+    types (str, EntityType, str, str, EntityType) it's too easy to transpose
+    two by accident; a NamedTuple makes each field's meaning explicit at
+    every call site that consumes it (community_detection, community_summary).
+    """
+
+    source_name: str
+    source_type: EntityType
+    relation_type: str
+    target_name: str
+    target_type: EntityType
 
 
 def get_neo4j_driver() -> Driver:
@@ -103,3 +120,92 @@ def fetch_document_graph(driver: Driver, document_id: str) -> list[dict]:
     )
     with driver.session() as session:
         return [dict(record) for record in session.run(query, document_id=document_id)]
+
+
+def fetch_all_relations(driver: Driver) -> list[RelationEdge]:
+    """Every relation in the graph, corpus-wide — no `document_id` filter,
+    unlike `fetch_document_graph`. Community detection needs the whole
+    corpus's connectivity (a community spanning ISO 27001 *and* ISO 42001
+    entities is exactly the interesting case for cross-standard gap
+    analysis), not one document's slice of it.
+    """
+    entity_labels = [entity_type.value for entity_type in EntityType]
+    query = (
+        "MATCH (a)-[r]->(b) "
+        "WHERE any(label IN labels(a) WHERE label IN $entity_labels) "
+        "AND any(label IN labels(b) WHERE label IN $entity_labels) "
+        "RETURN a.canonical_name AS source_name, labels(a)[0] AS source_type, "
+        "type(r) AS relation_type, "
+        "b.canonical_name AS target_name, labels(b)[0] AS target_type"
+    )
+    with driver.session() as session:
+        records = session.run(query, entity_labels=entity_labels)
+        return [
+            RelationEdge(
+                source_name=record["source_name"],
+                source_type=EntityType(record["source_type"]),
+                relation_type=record["relation_type"],
+                target_name=record["target_name"],
+                target_type=EntityType(record["target_type"]),
+            )
+            for record in records
+        ]
+
+
+def clear_communities(driver: Driver) -> None:
+    """Deletes every `Community` node (and its `IN_COMMUNITY` edges, via
+    `DETACH DELETE`). Communities are always fully recomputed from scratch,
+    never updated incrementally, so every detection run starts from a clean
+    slate — fine at this project's scale, and far simpler than reconciling
+    an existing partition against a changed graph.
+    """
+    with driver.session() as session:
+        session.run("MATCH (c:Community) DETACH DELETE c")
+
+
+def create_community(
+    driver: Driver,
+    community_id: str,
+    title: str,
+    summary: str,
+    members: list[tuple[EntityType, str]],
+) -> None:
+    """Creates one `Community` node and links every member entity to it via
+    `IN_COMMUNITY`. `community_id` is an application-level UUID (like
+    `Document`/`Chunk` ids), not Neo4j's own `elementId` — stable to
+    reference from the API layer.
+
+    Members are identified by `(entity_type, canonical_name)`, the same pair
+    `upsert_entity` uses, since `canonical_name` is only unique *within* an
+    entity-type label, not globally.
+    """
+    with driver.session() as session:
+        session.run(
+            "CREATE (c:Community {id: $id, title: $title, summary: $summary, "
+            "entity_count: $entity_count})",
+            id=community_id,
+            title=title,
+            summary=summary,
+            entity_count=len(members),
+        )
+        for entity_type, name in members:
+            session.run(
+                f"MATCH (e:{entity_type.value} {{canonical_name: $name}}), "
+                "(c:Community {id: $community_id}) "
+                "CREATE (e)-[:IN_COMMUNITY]->(c)",
+                name=name,
+                community_id=community_id,
+            )
+
+
+def fetch_communities(driver: Driver) -> list[dict]:
+    """Every community currently in the graph, largest first — the
+    results-inspection endpoint, same spirit as `fetch_document_graph`.
+    """
+    query = (
+        "MATCH (c:Community) RETURN c.id AS id, c.title AS title, "
+        "c.summary AS summary, c.entity_count AS entity_count "
+        "ORDER BY c.entity_count DESC"
+    )
+    with driver.session() as session:
+        return [dict(record) for record in session.run(query)]

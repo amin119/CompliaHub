@@ -28,5 +28,6 @@ celery_app.conf.update(
         "ingestion.embed_chunks": {"queue": "vector"},
         "extraction.extract_document": {"queue": "graph"},
         "extraction.resolve_and_load_document": {"queue": "graph"},
+        "communities.detect": {"queue": "graph"},
     },
 )
