@@ -11,6 +11,8 @@ class DocumentResponse(BaseModel):
     filename: str
     status: str
     error_message: str | None
+    graph_status: str
+    graph_error_message: str | None
     created_at: datetime
     updated_at: datetime
 

@@ -103,12 +103,14 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_SECURE: "false"
-      # Only Voyage is needed here — the embed_chunks_task pipeline stage
-      # runs inside this container. Cohere/Grok are only used by the
-      # /query route, which runs in the host-native FastAPI process (reads
-      # backend/.env directly), not in this worker.
+      # Voyage (embed_chunks_task) and Anthropic (extract_document_task) run
+      # inside this container, so both need keys here. Cohere/Grok are only
+      # used by the /query route, which runs in the host-native FastAPI
+      # process (reads backend/.env directly), not in this worker.
       VOYAGE_API_KEY: ${VOYAGE_API_KEY}
       VOYAGE_MODEL: ${VOYAGE_MODEL:-voyage-law-2}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_EXTRACTION_MODEL: ${ANTHROPIC_EXTRACTION_MODEL:-claude-haiku-4-5-20251001}
     depends_on:
       postgres:
         condition: service_healthy

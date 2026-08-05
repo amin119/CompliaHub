@@ -26,10 +26,22 @@ def _dict_to_section(data: dict) -> ParsedSection:
     )
 
 
-def _fail(db, document: Document, job: ProcessingJob, error: Exception) -> None:
+def _fail(
+    db,
+    document: Document,
+    job: ProcessingJob,
+    error: Exception,
+    status_field: str = "status",
+    error_field: str = "error_message",
+) -> None:
     """Failure boundary for a pipeline stage: record it on both the job (this
     stage's own history) and the document (so the API/UI can show *why* a
     document is stuck), instead of letting the worker crash silently.
+
+    `status_field`/`error_field` let Phase 3's extraction stages write to
+    `graph_status`/`graph_error_message` instead of the ingestion `status` —
+    extraction must never clobber the ingestion status that vector/lexical
+    search (Phase 2) depends on being `"ready"`.
 
     `db.rollback()` first is required, not optional: if `error` came from a
     failed flush (e.g. a bad insert), the session's transaction is already
@@ -40,17 +52,31 @@ def _fail(db, document: Document, job: ProcessingJob, error: Exception) -> None:
     job.status = "failed"
     job.error_message = str(error)
     job.finished_at = _now()
-    document.status = "failed"
-    document.error_message = str(error)
+    setattr(document, status_field, "failed")
+    setattr(document, error_field, str(error))
     db.commit()
 
 
 @contextmanager
-def pipeline_stage(document_id: str, task_name: str, in_progress_status: str):
-    """Owns everything shared by every ingestion stage: open a session, load
-    the `Document`, create+track a `ProcessingJob`, and on exit either mark
-    both successful or route the failure through `_fail` — so each task body
-    below only contains the one thing that's actually unique to that stage.
+def pipeline_stage(
+    document_id: str,
+    task_name: str,
+    in_progress_status: str,
+    status_field: str = "status",
+    error_field: str = "error_message",
+):
+    """Owns everything shared by every pipeline stage (ingestion *and*
+    extraction): open a session, load the `Document`, create+track a
+    `ProcessingJob`, and on exit either mark both successful or route the
+    failure through `_fail` — so each task body below only contains the one
+    thing that's actually unique to that stage.
+
+    `status_field`/`error_field` default to the ingestion pipeline's own
+    `status`/`error_message` columns, unchanged from Phase 1/2's original
+    behavior. Phase 3's extraction tasks pass `status_field="graph_status"`,
+    `error_field="graph_error_message"` instead — a separate, independent
+    status track, since a document can be ready for querying (Phase 2) long
+    before graph extraction has run at all.
 
     Yields `(db, document)`. A failure raised inside the `with` block is
     caught, handed to `_fail`, and re-raised (so Celery still sees the task
@@ -69,13 +95,13 @@ def pipeline_stage(document_id: str, task_name: str, in_progress_status: str):
             document_id=document.id, task_name=task_name, status="running", started_at=_now()
         )
         db.add(job)
-        document.status = in_progress_status
+        setattr(document, status_field, in_progress_status)
         db.commit()
 
         try:
             yield db, document
         except Exception as exc:
-            _fail(db, document, job, exc)
+            _fail(db, document, job, exc, status_field=status_field, error_field=error_field)
             raise
 
         job.status = "success"

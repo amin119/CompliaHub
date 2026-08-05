@@ -30,6 +30,11 @@ class Document(Base):
     minio_object_key: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Independent of `status` above: a document can be `ready` for vector/
+    # lexical search (Phase 2) well before graph extraction (Phase 3) has
+    # run at all, or ever runs — extraction is an explicit, separate trigger.
+    graph_status: Mapped[str] = mapped_column(String, nullable=False, default="not_started")
+    graph_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
