@@ -10,7 +10,8 @@ from app.models.document import Chunk, Document
 from app.schemas.document import ChunkResponse, DocumentResponse
 from app.services import storage
 from app.services.hashing import sha256_bytes
-from app.tasks.ingestion import chunk_document_task, embed_chunks_task, parse_document_task
+from app.tasks.embedding import embed_chunks_task
+from app.tasks.ingestion import chunk_document_task, parse_document_task
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 

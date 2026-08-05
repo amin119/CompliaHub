@@ -53,11 +53,13 @@ class Settings(BaseSettings):
     grok_base_url: str = "https://api.x.ai/v1"
     answer_model: str = "grok-4.5"
 
-    # Phase 3 — entity/relation extraction. Cheap/fast model since this runs
-    # once per chunk across the whole corpus, unlike Phase 2's one-shot
-    # answer generation.
-    anthropic_api_key: str = ""
-    anthropic_extraction_model: str = "claude-haiku-4-5-20251001"
+    # Phase 3 — entity/relation extraction. Cheap/free-tier model since this
+    # runs once per chunk across the whole corpus, unlike Phase 2's one-shot
+    # answer generation. Gemini's free tier has both per-minute and per-day
+    # quotas — worth checking aistudio.google.com for current limits on
+    # whichever model is set here before assuming a number.
+    gemini_api_key: str = ""
+    gemini_extraction_model: str = "gemini-3.1-flash-lite"
 
 
 @lru_cache

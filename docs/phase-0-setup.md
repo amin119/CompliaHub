@@ -77,6 +77,7 @@ data stack directly.
 Run it:
 ```
 cd backend
+uv sync --all-extras   # host dev needs every worker's deps (docling, google-genai, igraph) for the full test suite
 uv run uvicorn app.main:app --reload --port 8000
 # http://localhost:8000/health
 # http://localhost:8000/health/deep
@@ -104,8 +105,8 @@ pnpm build
 ## CI
 
 `.github/workflows/ci.yml` runs two jobs on push/PR to `main`: `backend`
-(`uv sync`, `ruff check`, `pytest`) and `frontend` (`pnpm install`, `pnpm lint`,
-`pnpm build`). Both run on `ubuntu-latest`.
+(`uv sync --all-extras`, `ruff check`, `pytest`) and `frontend` (`pnpm install`,
+`pnpm lint`, `pnpm build`). Both run on `ubuntu-latest`.
 
 ## Gotcha worth knowing: Windows + OpenSSL crash
 

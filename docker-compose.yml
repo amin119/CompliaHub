@@ -57,7 +57,10 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:6333/readyz || exit 1"]
+      # qdrant/qdrant's image has neither wget nor curl (confirmed by
+      # inspection) — /dev/tcp is a bash builtin, not a `sh`/dash one, so
+      # this must run under bash explicitly, not CMD-SHELL's default /bin/sh.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/6333 && printf \"GET /readyz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && head -1 <&3 | grep -q 200'"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -79,44 +82,86 @@ services:
       timeout: 5s
       retries: 10
 
-  # Celery worker for the ingestion pipeline (parse/chunk). Runs on Linux
-  # inside the container regardless of the Windows host — Celery's default
-  # worker pool needs os.fork(), which native Windows doesn't have.
+  # Three role-scoped Celery workers, replacing one do-everything worker.
+  # Each builds from the same backend/Dockerfile but with a different EXTRA
+  # build-arg, so each image only carries the dependencies its own tasks
+  # need (see backend/pyproject.toml's [project.optional-dependencies]) —
+  # e.g. worker-vector never installs Docling or the graph libs, so editing
+  # extraction.py no longer forces a rebuild of that multi-GB image. All run
+  # on Linux inside the container regardless of the Windows host — Celery's
+  # default worker pool needs os.fork(), which native Windows doesn't have.
   #
-  # Networking note: this container reaches the other services by their
+  # Networking note: these containers reach the other services by their
   # *service name* (postgres, redis, minio) over the compose network, not
   # `localhost`. That's different from backend/.env, which the FastAPI dev
   # server (running natively on the Windows host, outside this network) uses
   # with `localhost` + published ports. Same services, two different
   # vantage points.
-  worker:
+
+  worker-ingestion:
     build:
       context: ./backend
+      args:
+        EXTRA: ingestion
+    command: ["uv", "run", "celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info", "-Q", "ingestion", "-I", "app.tasks.ingestion"]
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
-      NEO4J_URI: bolt://neo4j:7687
-      NEO4J_USER: ${NEO4J_USER}
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
-      QDRANT_URL: http://qdrant:6333
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_SECURE: "false"
-      # Voyage (embed_chunks_task) and Anthropic (extract_document_task) run
-      # inside this container, so both need keys here. Cohere/Grok are only
-      # used by the /query route, which runs in the host-native FastAPI
-      # process (reads backend/.env directly), not in this worker.
-      VOYAGE_API_KEY: ${VOYAGE_API_KEY}
-      VOYAGE_MODEL: ${VOYAGE_MODEL:-voyage-law-2}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      ANTHROPIC_EXTRACTION_MODEL: ${ANTHROPIC_EXTRACTION_MODEL:-claude-haiku-4-5-20251001}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       minio:
+        condition: service_healthy
+
+  worker-vector:
+    build:
+      context: ./backend
+    command: ["uv", "run", "celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info", "-Q", "vector", "-I", "app.tasks.embedding"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY}
+      VOYAGE_MODEL: ${VOYAGE_MODEL:-voyage-law-2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
+  worker-graph:
+    build:
+      context: ./backend
+      args:
+        EXTRA: graph
+    command: ["uv", "run", "celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info", "-Q", "graph", "-I", "app.tasks.extraction"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: ${NEO4J_USER}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      # Entity resolution's embedding-similarity stage calls Voyage too, so
+      # this worker needs the same key as worker-vector even though its main
+      # job is graph extraction.
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY}
+      VOYAGE_MODEL: ${VOYAGE_MODEL:-voyage-law-2}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_EXTRACTION_MODEL: ${GEMINI_EXTRACTION_MODEL:-gemini-3.1-flash-lite}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      neo4j:
         condition: service_healthy
 
 volumes:

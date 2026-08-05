@@ -44,17 +44,21 @@ backend/
 │   │   ├── parsing.py                  # Docling wrapper -> ParsedSection tree + clause-number regex
 │   │   └── chunking.py                 # ParsedSection tree -> ChunkRecord list with ltree paths
 │   ├── tasks/
-│   │   ├── celery_app.py               # Celery app, Redis broker+backend
-│   │   └── ingestion.py                # parse_document_task, chunk_document_task (thin wrappers)
+│   │   ├── celery_app.py               # Celery app, Redis broker+backend, task_routes
+│   │   ├── pipeline.py                 # pipeline_stage — shared, dependency-free task infra
+│   │   ├── ingestion.py                # parse_document_task, chunk_document_task (thin wrappers)
+│   │   └── embedding.py                # embed_chunks_task (split out — see "Worker split" below)
 │   └── api/routes/documents.py        # POST /documents, GET /documents/{id}, GET .../chunks
-├── Dockerfile                         # python:3.12-slim + uv, runs the Celery worker
+├── Dockerfile                         # python:3.12-slim + uv, ARG EXTRA selects per-worker deps
 └── tests/
     ├── test_hashing.py, test_chunking.py   # pure unit tests, no infra needed
     ├── test_parsing.py                      # real Docling call against a generated fixture
     └── test_documents_api.py                # full integration test, skips if the docker stack isn't up
 ```
 
-`docker-compose.yml` gained a `worker` service built from that Dockerfile.
+`docker-compose.yml` gained a `worker` service built from that Dockerfile,
+later split into three (`worker-ingestion`/`worker-vector`/`worker-graph`) —
+see "Worker split" below.
 
 ## Decisions made
 
@@ -141,8 +145,9 @@ backend/
 
 1. `uv run alembic upgrade head` → confirms tables + `ltree` extension exist
    (`docker compose exec postgres psql -U compliancegraph -d compliancegraph -c '\dt'`).
-2. `docker compose up -d --build worker` → `docker compose ps` shows `worker`
-   healthy alongside the 5 data services.
+2. `docker compose up -d --build worker-ingestion worker-vector worker-graph`
+   → `docker compose ps` shows all three healthy alongside the 5 data
+   services.
 3. `uv run uvicorn app.main:app --reload` → `POST /documents` with a real
    ISO/GDPR PDF or DOCX, poll `GET /documents/{id}` until `ready`, then
    `GET /documents/{id}/chunks` to eyeball clause boundaries and paths.
@@ -168,6 +173,45 @@ behavior. Covered by a dedicated `tests/test_pipeline_stage.py` (infra-gated,
 same pattern as the other integration tests) in addition to the existing
 full-chain test in `test_documents_api.py`, which still passes unchanged —
 proving the refactor didn't alter observable behavior.
+
+## Worker split (done during Phase 3)
+
+The single `worker` service bundled Docling's torch/opencv stack (~9GB)
+alongside every other dependency, so *any* code change — even editing an
+unrelated file like `extraction.py` — forced a full rebuild of that same
+multi-GB image, making `docker compose build` painfully slow to iterate
+against. Fixed by splitting into three role-scoped Celery workers, each with
+its own slim Docker image and its own queue:
+
+| Worker | Queue | Tasks (`-I`) | Extra deps (`ARG EXTRA`) |
+|---|---|---|---|
+| `worker-ingestion` | `ingestion` | `app.tasks.ingestion` (parse, chunk) | `ingestion` (Docling) |
+| `worker-vector` | `vector` | `app.tasks.embedding` (embed) | *(none — Voyage/Qdrant already in base deps)* |
+| `worker-graph` | `graph` | `app.tasks.extraction` (extract, resolve+load) | `graph` (google-genai, igraph, leidenalg) |
+
+Routing is handled by `celery_app.conf.task_routes` (no per-task code
+changes needed) plus each worker's own `-Q`/`-I` CLI flags (each worker only
+imports the one task module it actually runs, so it never pulls in another
+worker's dependencies at import time). `backend/Dockerfile` gained
+`ARG EXTRA=""`, conditionally passed as `uv sync --extra "$EXTRA"`, so one
+Dockerfile serves all three images. `backend/pyproject.toml`'s heavy/
+distinguishing dependencies moved into `[project.optional-dependencies]`
+(`ingestion`, `graph`); everything the host API needs directly (voyageai,
+qdrant-client, cohere, openai, neo4j, minio, fastapi) stayed in base
+`dependencies`. Host dev/CI now run `uv sync --all-extras` instead of bare
+`uv sync`, since local test collection still imports Docling/google-genai/
+igraph at module level even though those tests mock the real client calls.
+
+**Non-obvious coupling found while planning this:** `pipeline_stage` (this
+phase's own DRY refactor, described above) originally lived in
+`app/tasks/ingestion.py` — a module with Docling imported at the top.
+Phase 3's `app/tasks/extraction.py` imported `pipeline_stage` from there,
+which meant the extraction task was *already* transitively importing
+Docling well before this split — harmless while there was only one
+do-everything worker image, but it would have silently defeated the whole
+point of a slim `worker-graph` image if left as-is. Fixed by extracting
+`_now`/`_fail`/`pipeline_stage` into a new, deliberately dependency-free
+`app/tasks/pipeline.py` that every worker can import safely.
 
 ## What Phase 2 needs from here
 

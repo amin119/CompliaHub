@@ -5,7 +5,7 @@ from sqlalchemy import text
 
 from app.core.db import SessionLocal, engine
 from app.models.document import Document
-from app.tasks.ingestion import pipeline_stage
+from app.tasks.pipeline import pipeline_stage
 
 
 def _infra_available() -> bool:

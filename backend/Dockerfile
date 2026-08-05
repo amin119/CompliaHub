@@ -13,7 +13,17 @@ WORKDIR /app
 # it only reruns when pyproject.toml/uv.lock actually change, not on every
 # source edit.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+
+# Each of the three worker services (see docker-compose.yml) passes its own
+# EXTRA build-arg so its image only installs the dependencies its own tasks
+# need — e.g. the vector worker needs neither Docling nor the graph libs,
+# so it builds without ever installing that multi-GB torch/opencv stack.
+ARG EXTRA=""
+RUN if [ -n "$EXTRA" ]; then \
+        uv sync --frozen --no-dev --extra "$EXTRA"; \
+    else \
+        uv sync --frozen --no-dev; \
+    fi
 
 # opencv-python (pulled in transitively by Docling's table-structure model)
 # dynamically links against X11/GL runtime libraries even though we only ever

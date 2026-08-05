@@ -102,6 +102,8 @@ agent can be tested with mocked retrieval, and so on.
 | Embeddings | Voyage (`voyage-law-2`) |
 | Reranking | Cohere Rerank (`rerank-v3.5`) |
 | Answer generation | Grok (xAI), via the OpenAI-compatible SDK |
+| Entity/relation extraction | Google Gemini (`gemini-3.1-flash-lite`, free tier) |
+| Community detection | `python-igraph` + `leidenalg` (Leiden algorithm) |
 | Agent orchestration | LangGraph *(Phase 5)* |
 | Evaluation | RAGAS *(Phase 7)* |
 
@@ -112,7 +114,7 @@ agent can be tested with mocked retrieval, and so on.
 ├── frontend/            Next.js chat UI
 ├── ingestion/            (reserved — currently folded into backend/app/services + tasks)
 ├── docs/                 Per-phase write-ups: plan before building, updated in place after
-├── docker-compose.yml    Local dev stack: postgres, redis, neo4j, qdrant, minio, worker
+├── docker-compose.yml    Local dev stack: postgres, redis, neo4j, qdrant, minio, 3 Celery workers
 └── GraphRAG-Agentic-RAG-Roadmap.md   Full project roadmap
 ```
 
@@ -142,16 +144,19 @@ docker compose up -d --build
 docker compose ps          # wait for all services to show "healthy"
 ```
 
-This brings up Postgres, Redis, Neo4j, Qdrant, MinIO, and the Celery
-ingestion worker. See [docs/phase-0-setup.md](docs/phase-0-setup.md) for
-per-service smoke tests and port reference.
+This brings up Postgres, Redis, Neo4j, Qdrant, MinIO, and the three
+role-scoped Celery workers (`worker-ingestion`, `worker-vector`,
+`worker-graph` — see [docs/phase-1-ingestion.md](docs/phase-1-ingestion.md)
+for why it's split this way). See
+[docs/phase-0-setup.md](docs/phase-0-setup.md) for per-service smoke tests
+and port reference.
 
 ### 2. Backend
 
 ```bash
 cd backend
 cp .env.example .env
-uv sync
+uv sync --all-extras   # host dev needs every worker's deps (docling, google-genai, igraph) to run the full test suite
 uv run alembic upgrade head   # creates tables + the ltree extension
 uv run uvicorn app.main:app --reload --port 8000
 ```

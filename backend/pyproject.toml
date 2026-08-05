@@ -6,18 +6,14 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.18.5",
-    "anthropic>=0.120.2",
     "celery>=5.6.3",
     "cohere>=5.19.0",
-    "docling>=2.116.0",
     "fastapi>=0.140.13",
-    "leidenalg>=0.12.0",
     "minio>=7.2.20",
     "neo4j>=6.2.0",
     "openai>=2.52.0",
     "psycopg2-binary>=2.9.12",
     "pydantic-settings>=2.14.2",
-    "python-igraph>=1.0.0",
     "python-multipart>=0.0.32",
     "qdrant-client>=1.18.0",
     "redis>=8.0.1",
@@ -27,6 +23,16 @@ dependencies = [
     "uvicorn[standard]>=0.52.0",
     "voyageai>=0.3.6",
 ]
+
+# Split so each of the three Celery worker images (see docker-compose.yml)
+# only installs what its own tasks need — `docling` and the graph libs pull
+# in a multi-GB torch/opencv stack, and bundling them into every worker image
+# meant any code change forced a full rebuild of that same multi-GB layer.
+# The plain "vector" worker needs neither extra: voyageai/qdrant-client are
+# already in base `dependencies` above.
+[project.optional-dependencies]
+ingestion = ["docling>=2.116.0"]
+graph = ["google-genai>=2.16.0", "leidenalg>=0.12.0", "python-igraph>=1.0.0"]
 
 [dependency-groups]
 dev = [

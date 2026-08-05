@@ -1,11 +1,23 @@
+import time
+
 from app.models.document import Chunk
 from app.services import embedding, entity_resolution, extraction, extraction_cache, graph_store
 from app.services.hashing import sha256_bytes
 from app.tasks.celery_app import celery_app
-from app.tasks.ingestion import pipeline_stage
+from app.tasks.pipeline import pipeline_stage
 
 _STATUS_FIELD = "graph_status"
 _ERROR_FIELD = "graph_error_message"
+
+# Proactive pacing, not just reactive retry-on-429: Gemini's free tier has a
+# stricter per-minute quota than what we found for Anthropic/Voyage, so
+# waiting until a 429 actually happens (then retrying) wastes calls that
+# would've succeeded with a little spacing. An empirical starting point, same
+# spirit as embedding.py's rate-limit constants — tune against the real
+# account's actual enforced limit once that's known, not just its advertised
+# one (the Voyage lesson: documented and enforced limits aren't always the
+# same number).
+_SECONDS_BETWEEN_EXTRACTION_CALLS = 4.0
 
 
 @celery_app.task(name="extraction.extract_document")
@@ -24,13 +36,21 @@ def extract_document_task(document_id: str) -> None:
             db.query(Chunk).filter(Chunk.document_id == document.id).order_by(Chunk.path).all()
         )
 
+        last_call_at: float | None = None
         for chunk in chunks:
             content_hash = sha256_bytes(chunk.text.encode("utf-8"))
 
             if extraction_cache.get_cached(db, content_hash) is not None:
-                continue
+                continue  # cache hit — no API call made, no need to pace
+
+            if last_call_at is not None:
+                elapsed = time.monotonic() - last_call_at
+                remaining = _SECONDS_BETWEEN_EXTRACTION_CALLS - elapsed
+                if remaining > 0:
+                    time.sleep(remaining)
 
             result = extraction.extract_chunk_text(chunk.text)
+            last_call_at = time.monotonic()
             extraction_cache.store_result(db, content_hash, result)
             db.commit()
 
