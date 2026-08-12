@@ -21,6 +21,23 @@ class RelationEdge(NamedTuple):
     target_type: EntityType
 
 
+class ProvenancedRelationEdge(NamedTuple):
+    """Same shape as `RelationEdge`, plus the `chunk_id`/`document_id` every
+    relation already carries — needed wherever the caller has to cite back
+    to an exact clause (Phase 4's local search), unlike `RelationEdge`'s
+    consumers (community detection/summarization), which only care about
+    graph connectivity, never provenance.
+    """
+
+    source_name: str
+    source_type: EntityType
+    relation_type: str
+    target_name: str
+    target_type: EntityType
+    chunk_id: str
+    document_id: str
+
+
 def get_neo4j_driver() -> Driver:
     settings = get_settings()
     return GraphDatabase.driver(
@@ -209,3 +226,129 @@ def fetch_communities(driver: Driver) -> list[dict]:
     )
     with driver.session() as session:
         return [dict(record) for record in session.run(query)]
+
+
+def fetch_entities_for_chunks(driver: Driver, chunk_ids: list[str]) -> set[tuple[EntityType, str]]:
+    """Every entity touched by any of the given chunks — the chunk-to-graph
+    pivot point for local search: rather than a new, separately-tuned
+    embedding-similarity path to find "relevant" entities for a question,
+    local search reuses Phase 2's already-reranked chunks and asks "which
+    entities did *these* mention," via the `chunk_id` provenance every
+    relation already carries.
+    """
+    if not chunk_ids:
+        return set()
+
+    entity_labels = [entity_type.value for entity_type in EntityType]
+    query = (
+        "MATCH (a)-[r]->(b) WHERE r.chunk_id IN $chunk_ids "
+        "AND any(label IN labels(a) WHERE label IN $entity_labels) "
+        "AND any(label IN labels(b) WHERE label IN $entity_labels) "
+        "RETURN a.canonical_name AS a_name, labels(a)[0] AS a_type, "
+        "b.canonical_name AS b_name, labels(b)[0] AS b_type"
+    )
+    with driver.session() as session:
+        records = session.run(query, chunk_ids=chunk_ids, entity_labels=entity_labels)
+        keys: set[tuple[EntityType, str]] = set()
+        for record in records:
+            keys.add((EntityType(record["a_type"]), record["a_name"]))
+            keys.add((EntityType(record["b_type"]), record["b_name"]))
+        return keys
+
+
+def fetch_relations_touching(
+    driver: Driver, entity_keys: list[tuple[EntityType, str]]
+) -> list[ProvenancedRelationEdge]:
+    """One hop's worth of relations from a frontier of entities, in either
+    direction — local search's BFS expansion primitive (see
+    `app/services/local_search.py`). Matches each seed by `(label,
+    canonical_name)` via `UNWIND`, one Cypher round-trip for the whole
+    frontier rather than one per entity.
+
+    Direction-agnostic on purpose: local search doesn't care whether a
+    neighboring entity was reached via an outgoing or incoming edge, only
+    that it's connected. `startNode`/`endNode` (not which side matched the
+    seed) determine each returned edge's actual source/target, so directed
+    provenance is preserved regardless of which side of `-[r]-` matched.
+    """
+    if not entity_keys:
+        return []
+
+    entity_labels = [entity_type.value for entity_type in EntityType]
+    keys_param = [{"entity_type": key[0].value, "name": key[1]} for key in entity_keys]
+    query = (
+        "UNWIND $keys AS key "
+        "MATCH (e) WHERE key.entity_type IN labels(e) AND e.canonical_name = key.name "
+        "MATCH (e)-[r]-(other) "
+        "WHERE any(label IN labels(other) WHERE label IN $entity_labels) "
+        "WITH DISTINCT r "
+        "RETURN labels(startNode(r))[0] AS source_type, "
+        "startNode(r).canonical_name AS source_name, "
+        "type(r) AS relation_type, "
+        "labels(endNode(r))[0] AS target_type, endNode(r).canonical_name AS target_name, "
+        "r.chunk_id AS chunk_id, r.document_id AS document_id"
+    )
+    with driver.session() as session:
+        records = session.run(query, keys=keys_param, entity_labels=entity_labels)
+        return [
+            ProvenancedRelationEdge(
+                source_name=record["source_name"],
+                source_type=EntityType(record["source_type"]),
+                relation_type=record["relation_type"],
+                target_name=record["target_name"],
+                target_type=EntityType(record["target_type"]),
+                chunk_id=record["chunk_id"],
+                document_id=record["document_id"],
+            )
+            for record in records
+        ]
+
+
+def fetch_relations_by_type(
+    driver: Driver,
+    relation_type: RelationType,
+    entity_key: tuple[EntityType, str] | None = None,
+) -> list[ProvenancedRelationEdge]:
+    """All relations of one type, optionally touching one specific entity
+    (either side) — a single, general query shape that covers two of the
+    roadmap's three named Cypher templates: "what references X" is
+    `relation_type=REFERENCES, entity_key=X`; "cross-standard mapping
+    lookup" is `relation_type=MAPS_TO` with no entity filter for a
+    corpus-wide view, or filtered to one standard.
+    """
+    query = (
+        "MATCH (a)-[r]->(b) WHERE type(r) = $relation_type "
+        "AND any(label IN labels(a) WHERE label IN $entity_labels) "
+        "AND any(label IN labels(b) WHERE label IN $entity_labels) "
+    )
+    params: dict = {
+        "relation_type": relation_type.value.upper(),
+        "entity_labels": [entity_type.value for entity_type in EntityType],
+    }
+    if entity_key is not None:
+        query += (
+            "AND ((labels(a)[0] = $key_type AND a.canonical_name = $key_name) "
+            "OR (labels(b)[0] = $key_type AND b.canonical_name = $key_name)) "
+        )
+        params["key_type"] = entity_key[0].value
+        params["key_name"] = entity_key[1]
+    query += (
+        "RETURN a.canonical_name AS source_name, labels(a)[0] AS source_type, "
+        "type(r) AS relation_type, "
+        "b.canonical_name AS target_name, labels(b)[0] AS target_type, "
+        "r.chunk_id AS chunk_id, r.document_id AS document_id"
+    )
+    with driver.session() as session:
+        records = session.run(query, **params)
+        return [
+            ProvenancedRelationEdge(
+                source_name=record["source_name"],
+                source_type=EntityType(record["source_type"]),
+                relation_type=record["relation_type"],
+                target_name=record["target_name"],
+                target_type=EntityType(record["target_type"]),
+                chunk_id=record["chunk_id"],
+                document_id=record["document_id"],
+            )
+            for record in records
+        ]

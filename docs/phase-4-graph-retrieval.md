@@ -1,8 +1,9 @@
 # Phase 4 — Graph Retrieval
 
-Status: **planned** — not yet implemented. Depends on Phase 3 (needs a
-populated graph with communities to query). Pre-implementation plan; update in
-place once built.
+Status: **Part 1 (local search) in progress.** Part 2 (global search) comes
+after — same Part 1/Part 2 split as Phase 3, confirmed with the user, because
+the two halves need genuinely different infrastructure (see "Local vs. global
+search" below).
 
 ## Goal
 
@@ -28,31 +29,84 @@ lookup, impact analysis).
   it came from (Phase 3); this phase is where that provenance actually gets
   surfaced as a citation in the final answer, not just stored.
 
-## Planned components
+## The key design question, resolved
 
-1. **Cypher query templates** for the recurring patterns: multi-hop
-   traversal, cross-standard mapping lookup, "what references/implements X."
-2. **Local search mode** — start from one or more matched entities, traverse
-   N hops.
-3. **Global search mode** — query community summaries first, drill down into
-   the underlying entities/relations only for the communities that match.
-4. **Combine graph results + vector results (Phase 2)** into a single context
-   for the LLM to answer from, with citations back to exact clause numbers
-   pulled from provenance.
-5. **Test against the 5 core use cases** from the roadmap's problem statement
-   — this phase is "done" when all 5 produce correct, cited answers.
+How does the system decide *which* graph entities/communities are relevant to
+a natural-language question? Checked how entity embeddings actually get
+created (`entity_resolution.py`): they're embeddings of the bare **entity
+name** ("Access Control Policy"), not a sentence — comparing that directly
+against a full-question embedding is a weaker match than name-vs-name (used
+for dedup) or sentence-vs-sentence (used for chunk retrieval). Rather than
+build a new, separately-tuned entity-embedding-similarity path, **local
+search reuses Phase 2's already-excellent chunk retrieval as its entry
+point**: rerank finds the best-matching chunks, every relation edge already
+carries `chunk_id` provenance (Phase 3), so "which entities did this chunk
+mention" is a direct lookup — no new embedding infra needed at all.
 
-## Open decisions to confirm before coding
+**Global search can't use that same trick** — its whole reason to exist is
+answering thematic/aggregate questions ("what are ISO 42001's main themes?")
+that don't map well to any single chunk, which is exactly what chunk-seeding
+would fail on. It needs its own path: embed each community summary at
+creation time, compare the question embedding against those directly. This
+is real, separate infrastructure — hence the Part 1/Part 2 split.
 
-- **Default hop count for local search** — too few hops misses relevant
-  context, too many pulls in noise and blows up context size; likely needs
-  empirical tuning against the 5 use cases rather than picking a number
-  upfront.
-- **How to merge graph + vector evidence in one prompt** — interleaved (both
-  sources mixed by relevance) vs. sectioned (graph evidence and vector
-  evidence presented in clearly separate blocks so the LLM can weigh them
-  differently). Sectioned is more transparent for debugging which source
-  drove an answer.
+## Part 1 components (local search)
+
+1. **`graph_store.py` additions** (new Neo4j query primitives, same style as
+   existing `fetch_all_relations`/`fetch_document_graph`):
+   - `fetch_entities_for_chunks(driver, chunk_ids)` — entities touched by a
+     given set of chunks (the chunk→graph pivot point).
+   - `fetch_relations_touching(driver, entity_keys)` — one hop's worth of
+     relations from a frontier of entities (local search's BFS primitive).
+   - `fetch_relations_by_type(driver, relation_type, entity_key=None)` — a
+     generic relation-type-filtered lookup. Covers **two** of the roadmap's
+     three named templates for free: "what references X" is
+     `relation_type=REFERENCES, entity_key=X`; "cross-standard mapping
+     lookup" is `relation_type=MAPS_TO` (no entity filter for a corpus-wide
+     view, or filtered to one standard). One query shape, two use cases —
+     didn't build three separate rigid templates since two of the three
+     roadmap examples are the same shape with a different parameter.
+2. **`app/services/local_search.py`** — `expand_hops(seed_keys,
+   fetch_relations_fn, max_hops)`: pure BFS over the frontier, with the Neo4j
+   fetch **injected as a callable** — same dependency-injection idiom
+   `entity_resolution.resolve_entities`'s `embed_fn` param already
+   established, so the traversal/stopping logic is unit-testable with a fake
+   fetcher, no live Neo4j needed for that part.
+3. **`/query` route**: after the existing rerank step (unchanged), pivot into
+   the graph from the reranked chunks' entities, expand N hops, fetch any
+   *additional* chunks the traversal surfaced (for their citation metadata),
+   and pass the graph facts to `answer_generation.generate_answer` as a new
+   optional `graph_facts` parameter — **sectioned, not interleaved**, in the
+   prompt (a clearly separate "Graph-derived facts" block after the vector
+   excerpts), so it stays possible to tell which source drove which part of
+   an answer. Every graph fact still cites back to a real `chunk_id`/
+   `clause_number` via the relation's own provenance — same `Citation` shape
+   Phase 2 already returns, no schema change needed.
+4. Default hop count: **2**, a plain module constant (`_DEFAULT_MAX_HOPS`),
+   same "empirical starting point, tune against real corpus" spirit as
+   `extraction.py`'s pacing constants — not expected to be right on the
+   first try.
+
+## Part 2 (global search — not started)
+
+- Embed each `Community.summary` at creation time (Voyage, one extra call
+  per community — cheap; a small addition to Phase 3 Part 2's
+  `create_community`/`detect_communities_task`, existing communities need a
+  one-time re-run to backfill).
+- `find_similar_communities(driver, query_embedding, top_k)` — brute-force
+  cosine over community summary embeddings, same pattern
+  `entity_resolution.py` already uses for entity dedup (fine at this scale;
+  same reasoning as everywhere else in this project).
+- "Drill down": once top communities are identified, pull their member
+  entities/relations (via `IN_COMMUNITY` edges) for citable specifics — the
+  community summary is the *discovery* signal, not the citation itself.
+
+## Test against the 5 core use cases
+
+Once Part 1 is live-verified, run the 5 example questions from the roadmap's
+problem statement for real (not just unit tests) and check the answers are
+both correct and properly cited — same "always verify live" practice as
+every prior phase.
 
 ## Learning checkpoint (from the roadmap)
 

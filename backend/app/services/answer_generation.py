@@ -54,13 +54,25 @@ def _format_context(context_chunks: list[Chunk]) -> str:
 
 
 def generate_answer(
-    question: str, context_chunks: list[Chunk], client: AnswerClient | None = None
+    question: str,
+    context_chunks: list[Chunk],
+    client: AnswerClient | None = None,
+    graph_facts: list[str] | None = None,
 ) -> str:
-    """Generates the final answer from the reranked top-N context chunks.
+    """Generates the final answer from the reranked top-N context chunks,
+    plus (Phase 4) any graph-traversal facts local search found.
+
+    `graph_facts` is a **separate, clearly-labeled section** appended after
+    the vector excerpts — sectioned rather than interleaved with them, so
+    it stays possible to tell which source (vector retrieval vs. graph
+    traversal) actually drove a given part of the answer. Each fact string
+    is expected to already carry its own citation label (e.g. a clause
+    number), same as the numbered excerpts above it.
 
     Returns plain answer text; the caller (the `/query` route) builds the
-    structured `Citation` list directly from `context_chunks` rather than
-    trying to parse which excerpts the model actually leaned on — precise
+    structured `Citation` list directly from `context_chunks` (and, for
+    Phase 4, from whichever chunks the graph facts cite) rather than trying
+    to parse which excerpts the model actually leaned on — precise
     per-claim citation attribution/faithfulness scoring is Phase 7
     (evaluation harness) territory, not this baseline.
 
@@ -71,16 +83,16 @@ def generate_answer(
     client = client or get_grok_client()
     settings = get_settings()
 
+    content = f"Excerpts:\n\n{_format_context(context_chunks)}"
+    if graph_facts:
+        content += "\n\nGraph-derived facts:\n\n" + "\n".join(graph_facts)
+    content += f"\n\nQuestion: {question}"
+
     return client.create_completion(
         model=settings.answer_model,
         messages=[
             {"role": "system", "content": _SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": (
-                    f"Excerpts:\n\n{_format_context(context_chunks)}\n\nQuestion: {question}"
-                ),
-            },
+            {"role": "user", "content": content},
         ],
         max_tokens=1024,
     )

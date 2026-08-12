@@ -7,20 +7,23 @@ from sqlalchemy import text
 
 from app.core.db import engine
 from app.main import app
-from app.services import answer_generation, embedding, reranking, vector_store
+from app.services import answer_generation, embedding, graph_store, reranking, vector_store
 from app.tasks.celery_app import celery_app
 
 
 def _infra_available() -> bool:
     """Same infra requirement as test_documents_api.py, plus a reachable
-    Qdrant — this module's whole point is exercising real dense-search +
-    lexical-search + fusion wiring, only the paid API calls (Voyage, Cohere,
-    Anthropic) are mocked.
+    Qdrant and (Phase 4) Neo4j — this module's whole point is exercising
+    real dense-search + lexical-search + fusion + local-search wiring, only
+    the paid API calls (Voyage, Cohere, Grok) are mocked.
     """
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1 FROM documents LIMIT 1"))
         vector_store.get_qdrant_client().get_collections()
+        driver = graph_store.get_neo4j_driver()
+        driver.verify_connectivity()
+        driver.close()
         return True
     except Exception:
         return False
@@ -67,7 +70,9 @@ def _mock_external_apis(monkeypatch):
     monkeypatch.setattr(embedding, "embed_texts", _fake_embed_texts)
     monkeypatch.setattr(reranking, "rerank", _fake_rerank)
     monkeypatch.setattr(
-        answer_generation, "generate_answer", lambda question, chunks: "mocked answer"
+        answer_generation,
+        "generate_answer",
+        lambda question, chunks, graph_facts=None: "mocked answer",
     )
 
 

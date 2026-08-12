@@ -147,3 +147,117 @@ def test_clear_communities_removes_all(driver):
     graph_store.clear_communities(driver)
 
     assert graph_store.fetch_communities(driver) == []
+
+
+def test_fetch_entities_for_chunks_returns_both_endpoints(driver):
+    chunk_id = str(uuid.uuid4())
+    source_name = _unique_name("Chunk Pivot Source")
+    target_name = _unique_name("Chunk Pivot Target")
+    source_id = graph_store.upsert_entity(driver, EntityType.CONTROL, source_name, [1.0])
+    target_id = graph_store.upsert_entity(driver, EntityType.RISK, target_name, [1.0])
+    graph_store.create_relation(
+        driver,
+        source_id,
+        target_id,
+        RelationType.APPLIES_TO,
+        chunk_id=chunk_id,
+        document_id=str(uuid.uuid4()),
+    )
+
+    keys = graph_store.fetch_entities_for_chunks(driver, [chunk_id])
+
+    assert (EntityType.CONTROL, source_name) in keys
+    assert (EntityType.RISK, target_name) in keys
+
+
+def test_fetch_entities_for_chunks_empty_input_returns_empty_set(driver):
+    assert graph_store.fetch_entities_for_chunks(driver, []) == set()
+
+
+def test_fetch_relations_touching_finds_relation_regardless_of_direction(driver):
+    chunk_id = str(uuid.uuid4())
+    name_a = _unique_name("Touch A")
+    name_b = _unique_name("Touch B")
+    id_a = graph_store.upsert_entity(driver, EntityType.CONTROL, name_a, [1.0])
+    id_b = graph_store.upsert_entity(driver, EntityType.RISK, name_b, [1.0])
+    graph_store.create_relation(
+        driver,
+        id_a,
+        id_b,
+        RelationType.APPLIES_TO,
+        chunk_id=chunk_id,
+        document_id=str(uuid.uuid4()),
+    )
+
+    # Querying from either endpoint should find the same edge, with the
+    # correct source/target regardless of which side matched the seed.
+    from_source = graph_store.fetch_relations_touching(driver, [(EntityType.CONTROL, name_a)])
+    from_target = graph_store.fetch_relations_touching(driver, [(EntityType.RISK, name_b)])
+
+    for relations in (from_source, from_target):
+        matching = [r for r in relations if r.chunk_id == chunk_id]
+        assert len(matching) == 1
+        assert matching[0].source_name == name_a
+        assert matching[0].target_name == name_b
+
+
+def test_fetch_relations_touching_empty_input_returns_empty_list(driver):
+    assert graph_store.fetch_relations_touching(driver, []) == []
+
+
+def test_fetch_relations_by_type_filters_by_relation_type(driver):
+    name_a = _unique_name("Type Filter A")
+    name_b = _unique_name("Type Filter B")
+    id_a = graph_store.upsert_entity(driver, EntityType.CONTROL, name_a, [1.0])
+    id_b = graph_store.upsert_entity(driver, EntityType.RISK, name_b, [1.0])
+    chunk_id = str(uuid.uuid4())
+    graph_store.create_relation(
+        driver, id_a, id_b, RelationType.MAPS_TO, chunk_id=chunk_id, document_id=str(uuid.uuid4())
+    )
+    graph_store.create_relation(
+        driver,
+        id_a,
+        id_b,
+        RelationType.REQUIRES,
+        chunk_id=str(uuid.uuid4()),
+        document_id=str(uuid.uuid4()),
+    )
+
+    results = graph_store.fetch_relations_by_type(driver, RelationType.MAPS_TO)
+
+    matching = [r for r in results if r.chunk_id == chunk_id]
+    assert len(matching) == 1
+    assert matching[0].relation_type == "MAPS_TO"
+
+
+def test_fetch_relations_by_type_with_entity_key_filters_to_that_entity(driver):
+    name_a = _unique_name("Ref Filter A")
+    name_b = _unique_name("Ref Filter B")
+    name_c = _unique_name("Ref Filter C")
+    id_a = graph_store.upsert_entity(driver, EntityType.CONTROL, name_a, [1.0])
+    id_b = graph_store.upsert_entity(driver, EntityType.RISK, name_b, [1.0])
+    id_c = graph_store.upsert_entity(driver, EntityType.RISK, name_c, [1.0])
+    target_chunk = str(uuid.uuid4())
+    graph_store.create_relation(
+        driver,
+        id_a,
+        id_b,
+        RelationType.REFERENCES,
+        chunk_id=target_chunk,
+        document_id=str(uuid.uuid4()),
+    )
+    graph_store.create_relation(
+        driver,
+        id_a,
+        id_c,
+        RelationType.REFERENCES,
+        chunk_id=str(uuid.uuid4()),
+        document_id=str(uuid.uuid4()),
+    )
+
+    results = graph_store.fetch_relations_by_type(
+        driver, RelationType.REFERENCES, entity_key=(EntityType.RISK, name_b)
+    )
+
+    assert any(r.chunk_id == target_chunk for r in results)
+    assert all(name_c != r.target_name for r in results)
