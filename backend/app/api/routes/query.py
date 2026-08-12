@@ -25,6 +25,18 @@ router = APIRouter(tags=["query"])
 _DENSE_TOP_K = 20
 _LEXICAL_TOP_K = 20
 
+# Local search's BFS can legitimately surface hundreds of relations from a
+# well-connected graph (confirmed live: a real 2-hop traversal from 5
+# reranked chunks' entities returned 321) — far too many to hand the answer
+# LLM without blowing up prompt size/cost. Capped here, not inside
+# `expand_hops` itself, so that function stays a complete, uncapped
+# traversal (useful on its own, e.g. for future debugging/inspection) and
+# this is purely "how much of that evidence actually reaches the prompt" —
+# same "gather broadly, narrow before the LLM" shape `_DENSE_TOP_K` vs.
+# `request.top_k` already uses for vector search. Traversal order is
+# BFS-by-hop, so earlier (closer) relations are kept over farther ones.
+_MAX_GRAPH_FACTS = 30
+
 
 @router.post("/query", response_model=QueryResponse)
 def query(request: QueryRequest, db: Session = Depends(get_db)) -> QueryResponse:
@@ -64,7 +76,7 @@ def query(request: QueryRequest, db: Session = Depends(get_db)) -> QueryResponse
         )
         graph_relations = local_search.expand_hops(
             seed_keys, lambda keys: graph_store.fetch_relations_touching(driver, keys)
-        )
+        )[:_MAX_GRAPH_FACTS]
     finally:
         driver.close()
 

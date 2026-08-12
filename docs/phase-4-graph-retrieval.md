@@ -1,9 +1,10 @@
 # Phase 4 — Graph Retrieval
 
-Status: **Part 1 (local search) in progress.** Part 2 (global search) comes
-after — same Part 1/Part 2 split as Phase 3, confirmed with the user, because
-the two halves need genuinely different infrastructure (see "Local vs. global
-search" below).
+Status: **Part 1 (local search) built and verified live** against the real,
+multi-document ISO 27001 graph from Phase 3 (see "Live verification" below).
+Part 2 (global search) comes after — same Part 1/Part 2 split as Phase 3,
+confirmed with the user, because the two halves need genuinely different
+infrastructure (see "The key design question, resolved" below).
 
 ## Goal
 
@@ -82,10 +83,53 @@ is real, separate infrastructure — hence the Part 1/Part 2 split.
    an answer. Every graph fact still cites back to a real `chunk_id`/
    `clause_number` via the relation's own provenance — same `Citation` shape
    Phase 2 already returns, no schema change needed.
-4. Default hop count: **2**, a plain module constant (`_DEFAULT_MAX_HOPS`),
-   same "empirical starting point, tune against real corpus" spirit as
-   `extraction.py`'s pacing constants — not expected to be right on the
-   first try.
+4. Default hop count: **2**, a plain module constant
+   (`local_search.DEFAULT_MAX_HOPS`), same "empirical starting point, tune
+   against real corpus" spirit as `extraction.py`'s pacing constants — see
+   "Live verification" below for why that number alone wasn't enough.
+
+## Live verification
+
+Ran a real question ("What does the organization need to do regarding
+information security risks?") against the real multi-document graph (ISO
+27001 English PDF + the French ISMS training deck, both from Phase 3's live
+testing) via a script exercising the actual retrieval pipeline:
+
+- Rerank correctly surfaced real, on-topic chunks (clauses 4.2.2, 6.1.1,
+  6.1.2 — risk treatment plan, risk assessment process).
+- Chunk→entity pivot found 20 real seed entities from those 5 chunks
+  (`Risk:'Information security risks'`, `Process:'Information security risk
+  assessment process'`, `Role:'Organization'`, ...).
+- Cross-document entity resolution is visible in the results: relations
+  touching `Requirement:'SMSI'` (the French document's term for ISMS) came
+  back alongside the English-document entities in the same traversal,
+  confirming the graph really is one connected corpus-wide structure, not
+  siloed per document.
+
+**One real problem found, not caught by unit tests (which use small,
+hand-built graphs where this never surfaces):** an *uncapped* 2-hop
+traversal from those 20 seed entities returned **321 relations** — Neo4j
+Community edition's whole graph is well-connected enough that a real corpus
+makes BFS expansion grow very fast. 321 formatted relations would have
+blown up the answer-generation prompt's size and cost for no real benefit
+(diminishing relevance the farther a fact is from the seed chunks). Fixed
+by capping how many graph facts actually reach the LLM
+(`query.py`'s `_MAX_GRAPH_FACTS = 30`) — **not** by capping inside
+`expand_hops` itself, so that function stays a complete, honest traversal
+(useful on its own for future debugging) and the cap is purely "how much of
+that evidence is worth spending prompt budget on," the same "gather
+broadly, then narrow before the LLM" shape `_DENSE_TOP_K` vs. `top_k`
+already uses on the vector-search side. Re-verified: 321 relations in, 30
+reach `generate_answer`.
+
+**Full end-to-end answer generation is currently blocked**, same as Phase
+2: the xAI (Grok) team account has zero credits/billing
+(`openai.PermissionDeniedError: 403 ... doesn't have any credits or
+licenses yet`) — confirmed this is unrelated to Phase 4's own code, since
+everything up through context/graph-facts construction executed correctly
+and the failure is the external answer-generation API call itself. Testing
+against the 5 core use cases' actual generated answers is blocked on that
+billing issue being resolved, not on anything left to build here.
 
 ## Part 2 (global search — not started)
 
@@ -103,10 +147,11 @@ is real, separate infrastructure — hence the Part 1/Part 2 split.
 
 ## Test against the 5 core use cases
 
-Once Part 1 is live-verified, run the 5 example questions from the roadmap's
-problem statement for real (not just unit tests) and check the answers are
-both correct and properly cited — same "always verify live" practice as
-every prior phase.
+Retrieval itself (rerank → chunk→entity pivot → BFS traversal → capped
+graph facts) is live-verified against real data — see above. Running the 5
+example questions from the roadmap's problem statement through to an
+actual *generated, cited answer* is next, blocked only on the xAI billing
+issue above being resolved (same external blocker Phase 2 hit).
 
 ## Learning checkpoint (from the roadmap)
 

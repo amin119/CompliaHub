@@ -126,7 +126,7 @@ agent can be tested with mocked retrieval, and so on.
 | 1 — Document ingestion pipeline | ✅ Done | [docs/phase-1-ingestion.md](docs/phase-1-ingestion.md) |
 | 2 — Vector layer | ✅ Done | [docs/phase-2-vector-layer.md](docs/phase-2-vector-layer.md) |
 | 3 — Entity & relation extraction | ✅ Done | [docs/phase-3-extraction.md](docs/phase-3-extraction.md) |
-| 4 — Graph retrieval | 🔜 Planned | [docs/phase-4-graph-retrieval.md](docs/phase-4-graph-retrieval.md) |
+| 4 — Graph retrieval | 🟡 Part 1 done | [docs/phase-4-graph-retrieval.md](docs/phase-4-graph-retrieval.md) |
 | 5 — Agentic orchestration | 🔜 Planned | [docs/phase-5-agentic-loop.md](docs/phase-5-agentic-loop.md) |
 | 6 — Frontend | 🔜 Planned | [docs/phase-6-frontend.md](docs/phase-6-frontend.md) |
 | 7 — Evaluation harness | 🔜 Planned | [docs/phase-7-evaluation.md](docs/phase-7-evaluation.md) |
