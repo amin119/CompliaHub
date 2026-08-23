@@ -23,8 +23,11 @@ _RETRY_BASE_DELAY_SECONDS = 2.0
 
 
 class ExtractionRateLimited(Exception):
-    """Our own abstraction of "the extraction provider rate-limited us" —
-    mirrors embedding.py's RateLimitExceeded, so the retry logic below
+    """Our own abstraction of "the extraction provider says try again later"
+    — covers both actual rate limiting (429) and transient server-side
+    unavailability (5xx, e.g. "high demand, try again"), since both call for
+    the exact same response: back off and retry, not fail immediately.
+    Mirrors embedding.py's RateLimitExceeded, so the retry logic below
     doesn't depend on which provider is behind ExtractionClient.
     """
 
@@ -66,6 +69,13 @@ class _GeminiExtractionClient:
             if exc.code == 429:
                 raise ExtractionRateLimited(str(exc)) from exc
             raise
+        except errors.ServerError as exc:
+            # Confirmed live: a real 503 ("This model is currently
+            # experiencing high demand... usually temporary") propagated
+            # straight out of a chunk's extraction and failed the whole
+            # document instead of being retried — ServerError wasn't caught
+            # at all before this, only ClientError (4xx) was.
+            raise ExtractionRateLimited(str(exc)) from exc
 
         return ChunkExtraction.model_validate_json(response.text)
 
@@ -86,10 +96,11 @@ def extract_chunk_text(
     `ExtractionClient` in tests to exercise the retry logic without a
     network call.
 
-    Retries on rate limits (exponential backoff, same shape as
-    `embedding.py`) and on schema-validation failure — the model's response
-    didn't conform to `ChunkExtraction` even with a forced schema (rare, but
-    output is stochastic, so a retry can succeed on a fresh sample).
+    Retries on rate limits *and* transient server errors (exponential
+    backoff, same shape as `embedding.py`) and on schema-validation failure
+    — the model's response didn't conform to `ChunkExtraction` even with a
+    forced schema (rare, but output is stochastic, so a retry can succeed
+    on a fresh sample).
 
     Gemini's free tier has both per-minute *and* per-day quotas — a 429 from
     a per-day quota being exhausted won't be fixed by retrying a few seconds

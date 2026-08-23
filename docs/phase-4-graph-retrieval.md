@@ -1,10 +1,9 @@
 # Phase 4 — Graph Retrieval
 
-Status: **Part 1 (local search) built and verified live** against the real,
-multi-document ISO 27001 graph from Phase 3 (see "Live verification" below).
-Part 2 (global search) comes after — same Part 1/Part 2 split as Phase 3,
-confirmed with the user, because the two halves need genuinely different
-infrastructure (see "The key design question, resolved" below).
+Status: **done and verified live, both parts.** Part 1 (local search) and
+Part 2 (global search) are both built and confirmed working against the
+real, multi-document ISO 27001 graph from Phase 3 (see "Live verification"
+and "Part 2 live verification" below).
 
 ## Goal
 
@@ -131,19 +130,89 @@ and the failure is the external answer-generation API call itself. Testing
 against the 5 core use cases' actual generated answers is blocked on that
 billing issue being resolved, not on anything left to build here.
 
-## Part 2 (global search — not started)
+## Part 2 (global search) — what was built
 
-- Embed each `Community.summary` at creation time (Voyage, one extra call
-  per community — cheap; a small addition to Phase 3 Part 2's
-  `create_community`/`detect_communities_task`, existing communities need a
-  one-time re-run to backfill).
-- `find_similar_communities(driver, query_embedding, top_k)` — brute-force
-  cosine over community summary embeddings, same pattern
-  `entity_resolution.py` already uses for entity dedup (fine at this scale;
-  same reasoning as everywhere else in this project).
-- "Drill down": once top communities are identified, pull their member
-  entities/relations (via `IN_COMMUNITY` edges) for citable specifics — the
-  community summary is the *discovery* signal, not the citation itself.
+- `Community.summary` is now embedded at creation time (Voyage,
+  `input_type="document"` — one extra call per community, cheap) and stored
+  as `summary_embedding`, via `graph_store.create_community`'s new required
+  param and `detect_communities_task`. Reusing the *same* `query_vector`
+  Phase 2 already computes for dense chunk search (no extra embedding call
+  needed at query time) is what makes question-vs-summary comparison
+  cheap.
+- `app/services/global_search.py`'s `find_similar_communities` — brute-force
+  cosine ranking over community summary embeddings, same pattern
+  `entity_resolution.py` already uses for entity dedup (fine at this
+  project's scale — a few dozen communities, not millions). No minimum-
+  similarity threshold, deliberately: unlike entity resolution's precise
+  "same entity or not" bar, "thematically related" is inherently fuzzy, and
+  a real classifier is Phase 5's job, not this baseline's.
+- New `graph_store.py` primitives: `fetch_community_embeddings` (id/title/
+  summary/embedding, for ranking) and `fetch_community_members` (drill-down
+  — every entity linked to a community via `IN_COMMUNITY`). Deliberately
+  kept separate from `fetch_communities` (the API inspection endpoint),
+  which excludes the embedding vector on purpose — a 1024-float array has
+  no place in a human-facing response.
+- `/query` route: reuses the same driver session as local search, ranks
+  communities, and for each of the top matches drills into its member
+  entities via the *existing* `fetch_relations_touching` (the same
+  primitive local search's BFS uses, called once per matched community
+  rather than expanded — a community's members are already a curated
+  cluster, so one hop out from them is the citable substance, not more
+  BFS expansion). Capped per community (`_MAX_DRILLDOWN_FACTS_PER_COMMUNITY
+  = 10`) for the same reason local search's graph facts got capped.
+  Rendered as a **third, separately-labeled** prompt section ("Related
+  themes") — a community's own summary line (no citation, it's a
+  synthesis) followed by its cited drill-down specifics.
+
+## Part 2 live verification
+
+Backfilled embeddings for the real corpus by re-running community
+detection (full recompute is already this task's designed behavior — no
+special migration needed). Real run: **61 communities created** (up from
+the earlier 25 — the corpus had grown since Part 1's original detection
+run), 98 singletons skipped.
+
+Ran a real thematic question ("What are the main themes around risk
+management in this corpus?") through `find_similar_communities` against
+the real embeddings:
+
+**Two things found live:**
+1. **Global search's mechanics work correctly and rank genuinely well** —
+   filtered to the corpus's substantive communities, the top match was
+   *"ISMS Framework and Risk Management Lifecycle"* (52 entities), exactly
+   right for the question, with sensible runners-up ("Governance and
+   Implementation of...SMSI", "Core Components of the ISMS").
+2. **A real, more severe version of Phase 3's already-documented test-data
+   finding**: of the 61 communities, **39 have exactly 2 entities** — almost
+   entirely leftover pytest fixtures accumulated across this session's many
+   test runs (`test_graph_store.py`/`test_communities_api.py` etc. create
+   real `Control`/`Risk` entities+relations in the shared dev Neo4j with no
+   cleanup, by established test-repeatability convention). Only 12
+   communities have more than 5 entities. Unfiltered, the *actual* top
+   match for the same question was a trivial 2-entity "Control mitigates
+   Risk" test-fixture community — generic-sounding LLM summaries of tiny
+   test clusters can cosine-rank *above* large, genuinely thematic real
+   clusters, since local search's chunk-seeding (immune to this — test
+   fixtures aren't linked to real ingested documents) doesn't protect
+   global search's corpus-wide ranking the same way.
+   **Deliberately not "fixed" with an arbitrary size filter** — that would
+   paper over the real root cause (shared dev/test database, not a global
+   search design flaw) and risk hiding genuinely small-but-meaningful real
+   clusters in a properly separated production database. Documented as a
+   known consequence of this project's dev-convenience convention, same as
+   Phase 3's version of this finding — a real production deployment needs
+   an actually separate test database, not just unique per-test names.
+- Docker rebuild note: rebuilding `worker-graph` to pick up these code
+  changes hit a network-level TLS failure (`pip install uv` inside the
+  build couldn't verify pypi.org's cert) unrelated to this project's own
+  code — the exact same Dockerfile had built successfully earlier this
+  session, so something about the host's network/VPN state changed
+  in between. Worked around by running `detect_communities_task()` directly
+  from the host venv (which already has every dependency via `uv sync
+  --all-extras`) instead of waiting on the container rebuild — same
+  workaround pattern used throughout this project's live-verification
+  scripts. `worker-graph`'s container image is stale relative to the code
+  until that build succeeds; not a code problem to fix.
 
 ## Test against the 5 core use cases
 

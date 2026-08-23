@@ -45,6 +45,15 @@ def chunk_document_task(parsed_tree: dict, document_id: str) -> None:
     their ltree hierarchy paths, and mark the document ready for embedding.
     """
     with pipeline_stage(document_id, "chunk", "chunking") as (db, document):
+        # Idempotency: re-running this stage (e.g. retrying after a
+        # downstream embed failure) must not pile up duplicate chunk rows
+        # alongside the ones a prior run already wrote — clear first, same
+        # "full recompute, not incremental" pattern used elsewhere in this
+        # project (e.g. community detection's clear-then-rebuild).
+        db.query(Chunk).filter(Chunk.document_id == document.id).delete(
+            synchronize_session=False
+        )
+
         root = _dict_to_section(parsed_tree)
         document_slug = document.filename.rsplit(".", 1)[0]
         records = chunking.build_chunks(root, document_slug)

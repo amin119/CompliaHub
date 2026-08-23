@@ -9,15 +9,29 @@ import truststore
 # itself. Harmless on Linux (the worker doesn't import this module at all).
 truststore.inject_into_ssl()
 
+from contextlib import asynccontextmanager  # noqa: E402
+
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from app.api.routes import communities, documents, extraction, health, query  # noqa: E402
+from app.core.checkpointer import close_checkpointer, open_checkpointer  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 
 settings = get_settings()
 
-app = FastAPI(title="ComplianceGraph API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Phase 5 Part 2: opens the agent's Postgres checkpoint connection pool
+    # once for the app's whole lifetime, not per-request — see
+    # app/core/checkpointer.py for why this can't just happen at import time.
+    open_checkpointer()
+    yield
+    close_checkpointer()
+
+
+app = FastAPI(title="ComplianceGraph API", lifespan=lifespan)
 
 # The Next.js dev server runs on a different origin (localhost:3000) than this
 # API (localhost:8000) — without CORS, the browser blocks the frontend's fetch

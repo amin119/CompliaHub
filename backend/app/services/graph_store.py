@@ -186,6 +186,7 @@ def create_community(
     title: str,
     summary: str,
     members: list[tuple[EntityType, str]],
+    summary_embedding: list[float],
 ) -> None:
     """Creates one `Community` node and links every member entity to it via
     `IN_COMMUNITY`. `community_id` is an application-level UUID (like
@@ -195,15 +196,23 @@ def create_community(
     Members are identified by `(entity_type, canonical_name)`, the same pair
     `upsert_entity` uses, since `canonical_name` is only unique *within* an
     entity-type label, not globally.
+
+    `summary_embedding` (Phase 4 Part 2) is what makes global search
+    possible: comparing a question's embedding directly against entity-name
+    embeddings is a weak match (see docs/phase-4-graph-retrieval.md), but a
+    community summary is itself a full sentence, so question-vs-summary
+    cosine similarity is the same well-behaved comparison Phase 2 already
+    relies on for chunk retrieval.
     """
     with driver.session() as session:
         session.run(
             "CREATE (c:Community {id: $id, title: $title, summary: $summary, "
-            "entity_count: $entity_count})",
+            "entity_count: $entity_count, summary_embedding: $summary_embedding})",
             id=community_id,
             title=title,
             summary=summary,
             entity_count=len(members),
+            summary_embedding=summary_embedding,
         )
         for entity_type, name in members:
             session.run(
@@ -218,6 +227,9 @@ def create_community(
 def fetch_communities(driver: Driver) -> list[dict]:
     """Every community currently in the graph, largest first — the
     results-inspection endpoint, same spirit as `fetch_document_graph`.
+    Deliberately excludes `summary_embedding` (see
+    `fetch_community_embeddings` for that) — a 1024-float vector has no
+    place in a human-facing inspection response.
     """
     query = (
         "MATCH (c:Community) RETURN c.id AS id, c.title AS title, "
@@ -226,6 +238,55 @@ def fetch_communities(driver: Driver) -> list[dict]:
     )
     with driver.session() as session:
         return [dict(record) for record in session.run(query)]
+
+
+class CommunityWithEmbedding(NamedTuple):
+    """A community plus its summary embedding — the shape global search's
+    similarity ranking needs, distinct from `fetch_communities`'s
+    embedding-free dicts (the API inspection response).
+    """
+
+    id: str
+    title: str
+    summary: str
+    embedding: list[float]
+
+
+def fetch_community_embeddings(driver: Driver) -> list[CommunityWithEmbedding]:
+    """Every community with its summary embedding — feeds global search's
+    brute-force cosine ranking (`global_search.find_similar_communities`),
+    same "fine at this project's scale" reasoning as
+    `entity_resolution.py`'s existing brute-force entity comparison.
+    """
+    query = (
+        "MATCH (c:Community) RETURN c.id AS id, c.title AS title, "
+        "c.summary AS summary, c.summary_embedding AS embedding"
+    )
+    with driver.session() as session:
+        return [
+            CommunityWithEmbedding(
+                id=record["id"],
+                title=record["title"],
+                summary=record["summary"],
+                embedding=record["embedding"],
+            )
+            for record in session.run(query)
+        ]
+
+
+def fetch_community_members(driver: Driver, community_id: str) -> list[tuple[EntityType, str]]:
+    """Every entity belonging to one community — global search's "drill
+    down" step: once a community's summary matches the question, pull its
+    actual member entities so `fetch_relations_touching` can surface
+    citable specifics, not just the synthesized summary text.
+    """
+    query = (
+        "MATCH (e)-[:IN_COMMUNITY]->(c:Community {id: $community_id}) "
+        "RETURN labels(e)[0] AS entity_type, e.canonical_name AS name"
+    )
+    with driver.session() as session:
+        records = session.run(query, community_id=community_id)
+        return [(EntityType(record["entity_type"]), record["name"]) for record in records]
 
 
 def fetch_entities_for_chunks(driver: Driver, chunk_ids: list[str]) -> set[tuple[EntityType, str]]:

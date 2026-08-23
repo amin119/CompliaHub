@@ -1,7 +1,7 @@
 import time
 import uuid
 
-from app.services import community_detection, community_summary, graph_store
+from app.services import community_detection, community_summary, embedding, graph_store
 from app.tasks.celery_app import celery_app
 
 # Fewer, less frequent calls than extraction (one per community, not per
@@ -55,8 +55,17 @@ def detect_communities_task() -> dict:
 
             result = community_summary.summarize_community(members, relations)
             last_call_at = time.monotonic()
+            # Phase 4 Part 2: embed the summary now, at creation time, so
+            # global search's question-vs-summary cosine comparison never
+            # needs to re-embed anything at query time.
+            summary_embedding = embedding.embed_texts([result.summary], input_type="document")[0]
             graph_store.create_community(
-                driver, str(uuid.uuid4()), result.title, result.summary, members
+                driver,
+                str(uuid.uuid4()),
+                result.title,
+                result.summary,
+                members,
+                summary_embedding,
             )
             created += 1
 

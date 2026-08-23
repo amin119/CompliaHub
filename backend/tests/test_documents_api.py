@@ -97,3 +97,30 @@ def test_upload_same_file_twice_is_idempotent():
     second = client.post("/documents", files=files)
 
     assert first.json()["id"] == second.json()["id"]
+
+
+def test_rerunning_chunk_stage_does_not_duplicate_chunks():
+    """Real bug found live: resubmitting the parse->chunk->embed chain to
+    retry a document that failed at the embed stage (chunking having
+    already succeeded) re-ran chunk_document_task, which didn't clear its
+    prior rows first — doubling every chunk. This directly exercises the
+    fix: rerunning the chunk stage in isolation must be a no-op on chunk
+    count, not additive.
+    """
+    from app.tasks.ingestion import chunk_document_task, parse_document_task
+
+    client = TestClient(app)
+    data = _sample_docx_bytes()
+    docx_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    response = client.post("/documents", files={"file": ("rerun.docx", data, docx_type)})
+    document_id = response.json()["id"]
+    assert client.get(f"/documents/{document_id}").json()["status"] == "ready"
+
+    first_count = len(client.get(f"/documents/{document_id}/chunks").json())
+    assert first_count == 1
+
+    parsed_tree = parse_document_task(document_id)
+    chunk_document_task(parsed_tree, document_id)
+
+    second_count = len(client.get(f"/documents/{document_id}/chunks").json())
+    assert second_count == first_count

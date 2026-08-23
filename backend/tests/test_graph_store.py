@@ -132,6 +132,7 @@ def test_create_community_links_members_and_fetch_communities_returns_it(driver)
         title="Test Community",
         summary="A test community summary.",
         members=[(EntityType.CONTROL, name_a), (EntityType.RISK, name_b)],
+        summary_embedding=[0.1, 0.2],
     )
 
     communities = graph_store.fetch_communities(driver)
@@ -142,11 +143,46 @@ def test_create_community_links_members_and_fetch_communities_returns_it(driver)
 
 
 def test_clear_communities_removes_all(driver):
-    graph_store.create_community(driver, str(uuid.uuid4()), "T", "S", members=[])
+    graph_store.create_community(
+        driver, str(uuid.uuid4()), "T", "S", members=[], summary_embedding=[0.1]
+    )
 
     graph_store.clear_communities(driver)
 
     assert graph_store.fetch_communities(driver) == []
+
+
+def test_fetch_community_embeddings_includes_the_embedding(driver):
+    community_id = str(uuid.uuid4())
+    graph_store.create_community(
+        driver, community_id, "T", "S", members=[], summary_embedding=[0.3, 0.4]
+    )
+
+    matches = [c for c in graph_store.fetch_community_embeddings(driver) if c.id == community_id]
+
+    assert len(matches) == 1
+    assert matches[0].embedding == [0.3, 0.4]
+
+
+def test_fetch_community_members_returns_linked_entities(driver):
+    name_a = _unique_name("Member Fetch A")
+    name_b = _unique_name("Member Fetch B")
+    graph_store.upsert_entity(driver, EntityType.CONTROL, name_a, [1.0])
+    graph_store.upsert_entity(driver, EntityType.RISK, name_b, [1.0])
+    community_id = str(uuid.uuid4())
+    graph_store.create_community(
+        driver,
+        community_id,
+        "T",
+        "S",
+        members=[(EntityType.CONTROL, name_a), (EntityType.RISK, name_b)],
+        summary_embedding=[0.1],
+    )
+
+    members = graph_store.fetch_community_members(driver, community_id)
+
+    assert (EntityType.CONTROL, name_a) in members
+    assert (EntityType.RISK, name_b) in members
 
 
 def test_fetch_entities_for_chunks_returns_both_endpoints(driver):

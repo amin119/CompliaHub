@@ -104,7 +104,7 @@ agent can be tested with mocked retrieval, and so on.
 | Answer generation | Grok (xAI), via the OpenAI-compatible SDK |
 | Entity/relation extraction | Google Gemini (`gemini-3.1-flash-lite`, free tier) |
 | Community detection | `python-igraph` + `leidenalg` (Leiden algorithm) |
-| Agent orchestration | LangGraph *(Phase 5)* |
+| Agent orchestration | LangGraph (query classifier + plan/retrieve/critique/rewrite loop) |
 | Evaluation | RAGAS *(Phase 7)* |
 
 ## Repo structure
@@ -126,8 +126,8 @@ agent can be tested with mocked retrieval, and so on.
 | 1 — Document ingestion pipeline | ✅ Done | [docs/phase-1-ingestion.md](docs/phase-1-ingestion.md) |
 | 2 — Vector layer | ✅ Done | [docs/phase-2-vector-layer.md](docs/phase-2-vector-layer.md) |
 | 3 — Entity & relation extraction | ✅ Done | [docs/phase-3-extraction.md](docs/phase-3-extraction.md) |
-| 4 — Graph retrieval | 🟡 Part 1 done | [docs/phase-4-graph-retrieval.md](docs/phase-4-graph-retrieval.md) |
-| 5 — Agentic orchestration | 🔜 Planned | [docs/phase-5-agentic-loop.md](docs/phase-5-agentic-loop.md) |
+| 4 — Graph retrieval | ✅ Done | [docs/phase-4-graph-retrieval.md](docs/phase-4-graph-retrieval.md) |
+| 5 — Agentic orchestration | ✅ Done | [docs/phase-5-agentic-loop.md](docs/phase-5-agentic-loop.md) |
 | 6 — Frontend | 🔜 Planned | [docs/phase-6-frontend.md](docs/phase-6-frontend.md) |
 | 7 — Evaluation harness | 🔜 Planned | [docs/phase-7-evaluation.md](docs/phase-7-evaluation.md) |
 | 8 — Scaling & hardening | 🔜 Planned | [docs/phase-8-scaling.md](docs/phase-8-scaling.md) |
@@ -166,7 +166,8 @@ uv run uvicorn app.main:app --reload --port 8000
 | `GET /health`, `GET /health/deep` | Liveness / per-service connectivity check |
 | `POST /documents` | Upload a PDF/DOCX for ingestion |
 | `GET /documents/{id}`, `GET /documents/{id}/chunks` | Check status and inspect results |
-| `POST /query` | Ask a question over ingested documents |
+| `POST /query` | Ask a question — classified and routed to vector/graph/agent retrieval, optionally continuing a `conversation_id` |
+| `GET /query/conversations/{id}`, `DELETE /query/conversations/{id}` | Inspect or forget a multi-turn agent conversation |
 | `http://localhost:8000/docs` | Interactive Swagger UI |
 
 ### 3. Frontend

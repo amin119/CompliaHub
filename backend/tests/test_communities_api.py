@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services import community_summary, graph_store
+from app.services import community_summary, embedding, graph_store
 from app.services.ontology import EntityType, RelationType
 from app.tasks.celery_app import celery_app
 
@@ -41,15 +41,20 @@ def _eager_celery():
 
 @pytest.fixture(autouse=True)
 def _mock_summarizer(monkeypatch):
-    """Real Neo4j, real Leiden partitioning — only the LLM summary call is
-    faked, so this test needs no real Gemini key.
+    """Real Neo4j, real Leiden partitioning — only the LLM summary call and
+    (Phase 4 Part 2) the summary embedding call are faked, so this test
+    needs no real Gemini or Voyage key.
     """
 
     def _fake_summarize(members, relations, client=None):
         names = ", ".join(name for _, name in members)
         return community_summary.CommunitySummary(title="Fake Title", summary=f"About {names}")
 
+    def _fake_embed_texts(texts, input_type):
+        return [[0.1, 0.2, 0.3] for _ in texts]
+
     monkeypatch.setattr(community_summary, "summarize_community", _fake_summarize)
+    monkeypatch.setattr(embedding, "embed_texts", _fake_embed_texts)
 
 
 def _unique_name(prefix: str) -> str:

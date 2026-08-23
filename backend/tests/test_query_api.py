@@ -7,7 +7,17 @@ from sqlalchemy import text
 
 from app.core.db import engine
 from app.main import app
-from app.services import answer_generation, embedding, graph_store, reranking, vector_store
+from app.services import (
+    agent,
+    answer_generation,
+    embedding,
+    graph_store,
+    query_classifier,
+    reranking,
+    retrieval,
+    vector_store,
+)
+from app.services.query_classifier import QueryCategory, QueryClassification
 from app.tasks.celery_app import celery_app
 
 
@@ -72,7 +82,16 @@ def _mock_external_apis(monkeypatch):
     monkeypatch.setattr(
         answer_generation,
         "generate_answer",
-        lambda question, chunks, graph_facts=None: "mocked answer",
+        lambda question, chunks, graph_facts=None, community_context=None: "mocked answer",
+    )
+    # Phase 5: every /query call now classifies first — default to GRAPH so
+    # the existing tests below (written against Phase 4's vector+local
+    # behavior) keep exercising that same path unchanged. Tests that care
+    # about a different category override this per-test.
+    monkeypatch.setattr(
+        query_classifier,
+        "classify_query",
+        lambda question, client=None: QueryClassification(category=QueryCategory.GRAPH),
     )
 
 
@@ -113,3 +132,56 @@ def test_query_with_no_matching_chunks_returns_empty_citations():
     # "no match"), so this only asserts the endpoint doesn't error — not
     # that citations are empty.
     assert "answer" in response.json()
+
+
+def test_vector_category_skips_the_graph_entirely(monkeypatch):
+    """Real cost savings from Phase 5's classifier: a `vector`-classified
+    question must never touch Neo4j at all. Verified by making
+    `local_search_facts` raise — if the route calls it anyway, this test
+    fails loudly instead of silently passing.
+    """
+    monkeypatch.setattr(
+        query_classifier,
+        "classify_query",
+        lambda question, client=None: QueryClassification(category=QueryCategory.VECTOR),
+    )
+
+    def _boom(driver, context_chunks):
+        raise AssertionError("local_search_facts must not run for a VECTOR-classified question")
+
+    monkeypatch.setattr(retrieval, "local_search_facts", _boom)
+
+    client = TestClient(app)
+    response = client.post("/query", json={"question": "what does clause 6.1.2 require?"})
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "mocked answer"
+
+
+def test_agent_category_delegates_to_the_agent_loop(monkeypatch):
+    from app.schemas.query import QueryResponse
+
+    monkeypatch.setattr(
+        query_classifier,
+        "classify_query",
+        lambda question, client=None: QueryClassification(category=QueryCategory.AGENT),
+    )
+
+    captured = {}
+
+    def _fake_run_agent(question, db, driver, checkpointer, conversation_id=None, max_iterations=2):
+        captured["question"] = question
+        captured["conversation_id"] = conversation_id
+        return QueryResponse(answer="agent answer", citations=[], conversation_id="conv-123")
+
+    monkeypatch.setattr(agent, "run_agent", _fake_run_agent)
+
+    client = TestClient(app)
+    question = "what does ISO 42001 require that ISO 27001 doesn't?"
+    response = client.post("/query", json={"question": question, "conversation_id": "conv-123"})
+
+    assert response.status_code == 200
+    assert response.json()["conversation_id"] == "conv-123"
+    assert captured["conversation_id"] == "conv-123"
+    assert response.json()["answer"] == "agent answer"
+    assert captured["question"] == question

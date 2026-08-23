@@ -58,23 +58,30 @@ def generate_answer(
     context_chunks: list[Chunk],
     client: AnswerClient | None = None,
     graph_facts: list[str] | None = None,
+    community_context: list[str] | None = None,
 ) -> str:
     """Generates the final answer from the reranked top-N context chunks,
-    plus (Phase 4) any graph-traversal facts local search found.
+    plus (Phase 4) any graph-traversal facts local search found, plus
+    (Phase 4 Part 2) thematically related community summaries global search
+    found.
 
-    `graph_facts` is a **separate, clearly-labeled section** appended after
-    the vector excerpts — sectioned rather than interleaved with them, so
-    it stays possible to tell which source (vector retrieval vs. graph
-    traversal) actually drove a given part of the answer. Each fact string
-    is expected to already carry its own citation label (e.g. a clause
-    number), same as the numbered excerpts above it.
+    Both `graph_facts` and `community_context` are **separate,
+    clearly-labeled sections** appended after the vector excerpts —
+    sectioned rather than interleaved with them or each other, so it stays
+    possible to tell which source (vector retrieval, graph traversal, or
+    corpus-wide clustering) actually drove a given part of the answer. Each
+    fact string is expected to already carry its own citation label (e.g. a
+    clause number), same as the numbered excerpts above it — except a
+    community's own summary line, which is a synthesized description, not
+    a specific cited claim.
 
     Returns plain answer text; the caller (the `/query` route) builds the
     structured `Citation` list directly from `context_chunks` (and, for
-    Phase 4, from whichever chunks the graph facts cite) rather than trying
-    to parse which excerpts the model actually leaned on — precise
-    per-claim citation attribution/faithfulness scoring is Phase 7
-    (evaluation harness) territory, not this baseline.
+    Phase 4, from whichever chunks the graph facts / community drill-down
+    facts cite) rather than trying to parse which excerpts the model
+    actually leaned on — precise per-claim citation attribution/
+    faithfulness scoring is Phase 7 (evaluation harness) territory, not
+    this baseline.
 
     `client` defaults to the real Grok-backed adapter; pass a fake
     `AnswerClient` in tests to verify the prompt/citation formatting without
@@ -86,6 +93,10 @@ def generate_answer(
     content = f"Excerpts:\n\n{_format_context(context_chunks)}"
     if graph_facts:
         content += "\n\nGraph-derived facts:\n\n" + "\n".join(graph_facts)
+    if community_context:
+        content += "\n\nRelated themes (from corpus-wide clustering):\n\n" + "\n".join(
+            community_context
+        )
     content += f"\n\nQuestion: {question}"
 
     return client.create_completion(
