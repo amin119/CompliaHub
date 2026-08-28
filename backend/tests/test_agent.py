@@ -51,8 +51,11 @@ def _patch_retrieval(monkeypatch, chunks):
     monkeypatch.setattr(retrieval, "vector_search", lambda db, question, top_k: (chunks, [0.1]))
     monkeypatch.setattr(retrieval, "local_search_facts", lambda driver, context_chunks: [])
     monkeypatch.setattr(retrieval, "global_search_context", lambda driver, query_vector: [])
+    # answer_node always consumes stream_answer (see agent.py) — a single-
+    # chunk iterator keeps `response.answer == "final answer"` assertions
+    # below exact, whether or not a test is actually streaming.
     monkeypatch.setattr(
-        answer_generation, "generate_answer", lambda *a, **k: "final answer"
+        answer_generation, "stream_answer", lambda *a, **k: iter(["final answer"])
     )
 
 
@@ -117,7 +120,7 @@ def test_global_search_only_enabled_after_first_pass(monkeypatch):
         "global_search_context",
         lambda driver, query_vector: global_search_calls.append(1) or [],
     )
-    monkeypatch.setattr(answer_generation, "generate_answer", lambda *a, **k: "final answer")
+    monkeypatch.setattr(answer_generation, "stream_answer", lambda *a, **k: iter(["final answer"]))
     fake_gemini = _FakeGemini(critique_sequence=[False, True])
     monkeypatch.setattr(agent, "_call_gemini_structured", fake_gemini)
 
@@ -212,6 +215,63 @@ def test_conversation_history_survives_across_separate_run_agent_calls(monkeypat
     assert len(captured_prompts) == 1
     assert "What does ISO 27001 say about access control?" in captured_prompts[0]
     assert "final answer" in captured_prompts[0]
+
+
+def test_stream_agent_emits_status_events_then_tokens_then_a_final_done_event(monkeypatch):
+    chunk = _make_chunk("A.1", "relevant text")
+    _patch_retrieval(monkeypatch, [chunk])
+    fake_gemini = _FakeGemini(critique_sequence=[True])
+    monkeypatch.setattr(agent, "_call_gemini_structured", fake_gemini)
+
+    collected = list(
+        agent.stream_agent("some question", db=None, driver=None, checkpointer=MemorySaver())
+    )
+
+    # No conversation_history yet on a first turn, so condense_question is
+    # skipped (same as run_agent) and emits no status event of its own.
+    stages = [event["stage"] for event in collected if event["type"] == "status"]
+    assert stages == ["planning", "retrieving", "critiquing", "generating_answer"]
+
+    tokens = [event["text"] for event in collected if event["type"] == "token"]
+    assert "".join(tokens) == "final answer"
+
+    done = collected[-1]
+    assert done["type"] == "done"
+    assert done["conversation_id"] is not None
+    assert len(done["citations"]) == 1
+    assert done["graph_evidence"] == {"nodes": [], "edges": []}
+
+
+def test_stream_agent_continuing_a_conversation_emits_a_condensing_status_event(monkeypatch):
+    chunk = _make_chunk("A.1", "relevant text")
+    _patch_retrieval(monkeypatch, [chunk])
+    fake_gemini = _FakeGemini(critique_sequence=[True, True])
+    monkeypatch.setattr(agent, "_call_gemini_structured", fake_gemini)
+    checkpointer = MemorySaver()
+
+    first_events = list(
+        agent.stream_agent(
+            "What does ISO 27001 say about access control?",
+            db=None,
+            driver=None,
+            checkpointer=checkpointer,
+        )
+    )
+    conversation_id = first_events[-1]["conversation_id"]
+
+    second_events = list(
+        agent.stream_agent(
+            "What about GDPR?",
+            db=None,
+            driver=None,
+            checkpointer=checkpointer,
+            conversation_id=conversation_id,
+        )
+    )
+
+    stages = [event["stage"] for event in second_events if event["type"] == "status"]
+    assert stages[0] == "condensing_question"
+    assert second_events[-1]["conversation_id"] == conversation_id
 
 
 def test_unknown_conversation_id_falls_back_to_a_fresh_conversation(monkeypatch):

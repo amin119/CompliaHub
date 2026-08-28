@@ -1,26 +1,158 @@
 @import "tailwindcss";
 
+/* Shared app tokens, used by /chat and /documents. Do not repurpose these
+   for the landing rebuild below - the brief requires the existing app
+   stay untouched. Unchanged since Phase 6 Part 5/6. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f5efe3;
+  --foreground: #201e1a;
+  --surface: #fffcf6;
+  --surface-border: #ddd1b8;
+  --accent: #1d4b63;
+  --accent-foreground: #fbf7ee;
+  --accent-soft: rgba(29, 75, 99, 0.08);
+  --ring: #1d4b63;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-border: var(--surface-border);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-ring: var(--ring);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-serif);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #15181a;
+    --foreground: #eef1ee;
+    --surface: #1b2023;
+    --surface-border: #2c3236;
+    --accent: #6fa9c2;
+    --accent-foreground: #0d1416;
+    --accent-soft: rgba(111, 169, 194, 0.16);
+    --ring: #6fa9c2;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+@keyframes blink-caret {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-blink-caret {
+  animation: blink-caret 1s step-end infinite;
+}
+
+/* Landing-page-only design tokens (brief section 3).
+   Deliberately namespaced (--landing-*), separate from the --color-*
+   and --font-* tokens above, which /chat and /documents depend on.
+   Applied only via the .font-landing-sans / .font-landing-serif utility
+   classes and the landing-* color utilities below, never through
+   Tailwind's built-in font-sans / font-serif / bg-background classes -
+   those stay wired to the app tokens above. */
+:root {
+  --landing-marble: #f4f0e8;
+  --landing-parchment: #ede6d6;
+  --landing-stone: #d8d0bf;
+  --landing-charcoal: #22201c;
+  --landing-aegean: #1f3a52;
+  --landing-olive: #4b4a2f;
+  --landing-terracotta: #a85c3f;
+  --landing-bronze: #8a6e45;
+
+  --landing-bg: var(--landing-marble);
+  --landing-surface: var(--landing-parchment);
+  --landing-border: var(--landing-stone);
+  --landing-fg: var(--landing-charcoal);
+  /* Brief section 3: one accent for interactive elements (aegean, for
+     links and buttons); bronze is reserved for the thread itself and its
+     active states. The two converge to a single bronze accent in dark
+     mode, per the brief's own dark-mode guidance. */
+  --landing-accent: var(--landing-aegean);
+  --landing-accent-fg: var(--landing-marble);
+  --landing-accent-soft: rgba(31, 58, 82, 0.08);
+  --landing-thread: var(--landing-bronze);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --landing-bg: #17150f;
+    --landing-surface: #201d16;
+    --landing-border: #34302a;
+    --landing-fg: var(--landing-marble);
+    --landing-accent: #c9a875;
+    --landing-accent-fg: #17150f;
+    --landing-accent-soft: rgba(201, 168, 117, 0.14);
+    --landing-thread: #c9a875;
+  }
+}
+
+@theme inline {
+  --color-landing-bg: var(--landing-bg);
+  --color-landing-surface: var(--landing-surface);
+  --color-landing-border: var(--landing-border);
+  --color-landing-fg: var(--landing-fg);
+  --color-landing-accent: var(--landing-accent);
+  --color-landing-accent-fg: var(--landing-accent-fg);
+  --color-landing-accent-soft: var(--landing-accent-soft);
+  --color-landing-thread: var(--landing-thread);
+  --color-landing-olive: var(--landing-olive);
+  --color-landing-terracotta: var(--landing-terracotta);
+  --font-landing-sans: var(--font-landing-sans);
+  --font-landing-serif: var(--font-landing-serif);
+}
+
+.font-landing-sans {
+  font-family: var(--font-landing-sans), Arial, Helvetica, sans-serif;
+}
+
+.font-landing-serif {
+  font-family: var(--font-landing-serif), Georgia, serif;
+}
+
+/* Brief section 8: focus states styled in the landing's own accent, not
+   the default blue browser outline. Scoped under .font-landing-sans (the
+   landing page's own root wrapper) rather than a bare `a, button`
+   selector, so this never affects focus styling on /chat or /documents. */
+.font-landing-sans :focus-visible {
+  outline: 2px solid var(--landing-accent);
+  outline-offset: 2px;
+}
+
+/* Fine paper-grain dot field, landing hero backdrop only. */
+.bg-landing-grain {
+  background-image: radial-gradient(currentColor 0.5px, transparent 0.5px);
+  background-size: 14px 14px;
+}
+
+/* A quiet architectural blueprint cross-hatch, landing footer only. */
+.bg-landing-blueprint {
+  background-image:
+    linear-gradient(currentColor 1px, transparent 1px),
+    linear-gradient(90deg, currentColor 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--accent);
 }

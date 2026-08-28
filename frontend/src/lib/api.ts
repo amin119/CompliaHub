@@ -8,10 +8,29 @@ export type Citation = {
   path: string;
 };
 
+export type GraphNode = {
+  id: string;
+  name: string;
+  entity_type: string;
+};
+
+export type GraphEdge = {
+  source: string;
+  target: string;
+  relation_type: string;
+  chunk_id: string | null;
+};
+
+export type GraphEvidence = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+};
+
 export type QueryResponse = {
   answer: string;
   citations: Citation[];
   conversation_id: string | null;
+  graph_evidence: GraphEvidence;
 };
 
 async function parseErrorDetail(response: Response): Promise<string> {
@@ -35,6 +54,65 @@ export async function askQuestion(
   });
   if (!response.ok) throw new Error(await parseErrorDetail(response));
   return response.json();
+}
+
+export type StreamEvent =
+  | { type: "status"; stage: string }
+  | { type: "token"; text: string }
+  | {
+      type: "done";
+      conversation_id: string;
+      citations: Citation[];
+      graph_evidence: GraphEvidence;
+    }
+  | { type: "error"; message: string };
+
+/**
+ * Phase 6 Part 2: consumes `POST /query/stream`'s Server-Sent Events. A
+ * plain `fetch()` + `ReadableStream`, not the browser's `EventSource` —
+ * `EventSource` only supports GET, and the question has to go in the body.
+ *
+ * SSE frames are separated by a blank line and may arrive split across
+ * multiple stream chunks (or several frames in one chunk), so this buffers
+ * decoded text and only emits once a full `\n\n`-terminated frame is seen.
+ */
+export async function streamQuestion(
+  question: string,
+  conversationId: string | null,
+  onEvent: (event: StreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`${API_URL}/query/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, conversation_id: conversationId }),
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    onEvent({ type: "error", message: await parseErrorDetail(response) });
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary !== -1) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const dataLine = frame.split("\n").find((line) => line.startsWith("data: "));
+      if (dataLine) {
+        onEvent(JSON.parse(dataLine.slice("data: ".length)) as StreamEvent);
+      }
+      boundary = buffer.indexOf("\n\n");
+    }
+  }
 }
 
 export type DocumentStatus = {

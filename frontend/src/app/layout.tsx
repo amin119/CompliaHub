@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
+import { Geist, Geist_Mono, Instrument_Serif, Inter, Playfair_Display } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -10,6 +9,30 @@ const geistSans = Geist({
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+// The editorial/display face used by the app itself (e.g. /chat's page
+// title) — unrelated to the landing rebuild below, kept exactly as-is per
+// the brief's "do not touch the existing app" instruction.
+const playfairDisplay = Playfair_Display({
+  variable: "--font-serif",
+  subsets: ["latin"],
+});
+
+// Landing-page-only typefaces (brief §4). Deliberately separate CSS
+// variables from the app's --font-sans/--font-serif above, consumed only
+// via the .font-landing-sans/.font-landing-serif utility classes in
+// globals.css — so introducing these can never change how /chat or
+// /documents render.
+const instrumentSerif = Instrument_Serif({
+  variable: "--font-landing-serif",
+  subsets: ["latin"],
+  weight: "400",
+});
+
+const inter = Inter({
+  variable: "--font-landing-sans",
   subsets: ["latin"],
 });
 
@@ -26,28 +49,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${playfairDisplay.variable} ${instrumentSerif.variable} ${inter.variable} antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        <nav className="flex items-center gap-4 border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
-          <span className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-            ComplianceHub
-          </span>
-          <Link
-            href="/"
-            className="text-sm text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50"
-          >
-            Chat
-          </Link>
-          <Link
-            href="/documents"
-            className="text-sm text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50"
-          >
-            Documents
-          </Link>
-        </nav>
-        <div className="flex flex-1 flex-col">{children}</div>
-      </body>
+      <body className="min-h-screen">{children}</body>
     </html>
   );
 }

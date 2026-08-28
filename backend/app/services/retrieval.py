@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.document import Chunk
-from app.schemas.query import Citation
+from app.schemas.query import Citation, GraphEdge, GraphEvidence, GraphNode
 from app.services import (
     embedding,
     fusion,
@@ -103,6 +103,64 @@ def global_search_context(
         )
         for community in matched_communities
     ]
+
+
+def build_graph_evidence(
+    graph_relations: list[ProvenancedRelationEdge],
+    community_drilldowns: list[tuple[CommunityWithEmbedding, list[ProvenancedRelationEdge]]]
+    | None = None,
+) -> GraphEvidence:
+    """Phase 6 Part 2: the structural counterpart to `render_evidence`'s
+    prompt-string formatting — turns the same relations into deduped nodes/
+    edges for the frontend's graph visualization, instead of throwing that
+    structure away once it's been flattened into text for the LLM.
+
+    Deliberately a separate function from `render_evidence` rather than
+    folded into it: `render_evidence` needs a `db` session (to resolve
+    citation metadata for chunks outside `context_chunks`) and is called
+    from every retrieval path including plain `vector`-classified questions
+    that never have graph relations at all; this only needs the relations
+    themselves and is skipped entirely when there aren't any.
+    """
+    all_relations = list(graph_relations)
+    if community_drilldowns:
+        all_relations += [
+            relation for _, relations in community_drilldowns for relation in relations
+        ]
+
+    nodes_by_id: dict[str, GraphNode] = {}
+    edges: list[GraphEdge] = []
+    seen_edges: set[tuple[str, str, str]] = set()
+    for relation in all_relations:
+        source_id = f"{relation.source_type.value}:{relation.source_name}"
+        target_id = f"{relation.target_type.value}:{relation.target_name}"
+        nodes_by_id.setdefault(
+            source_id,
+            GraphNode(
+                id=source_id, name=relation.source_name, entity_type=relation.source_type.value
+            ),
+        )
+        nodes_by_id.setdefault(
+            target_id,
+            GraphNode(
+                id=target_id, name=relation.target_name, entity_type=relation.target_type.value
+            ),
+        )
+
+        edge_key = (source_id, relation.relation_type, target_id)
+        if edge_key in seen_edges:
+            continue
+        seen_edges.add(edge_key)
+        edges.append(
+            GraphEdge(
+                source=source_id,
+                target=target_id,
+                relation_type=relation.relation_type,
+                chunk_id=uuid.UUID(relation.chunk_id),
+            )
+        )
+
+    return GraphEvidence(nodes=list(nodes_by_id.values()), edges=edges)
 
 
 def render_evidence(

@@ -123,7 +123,9 @@ route correctly reached `answer_generation.generate_answer` directly (no
 Neo4j call) — it failed exactly at the external Grok call
 (`openai.PermissionDeniedError: 403 ... doesn't have any credits`), the
 same pre-existing xAI billing block from Phase 2, confirmed unrelated to
-Phase 5's own code.
+Phase 5's own code. (Phase 6 Part 2 later moved answer generation off Grok
+onto Gemini entirely, retiring this blocker — see
+docs/phase-6-frontend.md.)
 
 **Full agent loop**, run against the real corpus with only the
 billing-blocked final Grok call bypassed (question: *"What does ISO 42001
@@ -256,6 +258,113 @@ Gemini/retrieval mocked, **real Postgres checkpointer**:
 
 All 5 steps passed on the first real run against the live docker-compose
 Postgres instance. Full test suite: 103 passed.
+
+## Bug fix (post-Phase 6): off-topic questions were slow, not a real defect in the loop itself
+
+Reported directly by the user after trying the live Phase 6 chat UI: a plain
+greeting ("hi, how are you doing?") took **~19 seconds** and came back with
+two dozen irrelevant citations and a nonsense graph visualization. Reproduced
+first via a direct `curl` against `/query/stream` before touching any code —
+confirmed it ran the *entire* agent loop (`planning` → `retrieving` →
+`critiquing` → `rewriting_query` → `planning` → `retrieving` → `critiquing` →
+`generating_answer`, two full iterations) for a question with nothing to do
+with compliance.
+
+**Root cause**: `query_classifier.py`'s three categories (`vector`/`graph`/
+`agent`) have no way to represent "not a compliance question at all" — and
+the classifier's own tie-breaking instruction ("when unsure between graph
+and agent, prefer agent") meant anything that didn't cleanly fit vector or
+graph fell through to the single *most expensive* path by default. A
+greeting isn't ambiguous between retrieval strategies — it just doesn't need
+retrieval at all — but the classifier had no fourth option to say so.
+
+**Fix**: added `QueryCategory.OFF_TOPIC`, with the system prompt explicit
+that it's for questions that plainly aren't about compliance (not a
+fallback for compliance questions the model is merely unsure how to route).
+Both `/query` and `/query/stream` fast-path this category to a canned reply
+*before* touching `retrieval.vector_search`, Neo4j, or any answer-generation
+LLM call — verified by making retrieval raise in the regression tests, same
+"boom if it's ever called" pattern already used for
+`test_vector_category_skips_the_graph_entirely`.
+
+**Live re-verification after the fix**: the same "hi, how are you doing?"
+question dropped from ~19s (full agent loop, 25 citations, ~20-node graph)
+to ~6s (one classification call, zero citations, empty graph) — the
+remaining time is just the single Gemini classification round-trip itself,
+not anything left to optimize. Real compliance questions were re-checked
+too, to make sure the new category didn't start swallowing legitimate
+ones — "what controls mitigate the risk of unauthorized access?" still
+correctly classified as `graph` and answered normally. Full backend suite
+green after the fix: **115 passed** (up from 113 — the two new off-topic
+regression tests, one for each route, each verified by making retrieval
+raise if the fast path doesn't actually short-circuit). **One deployment gotcha hit while verifying, not a code bug**:
+`uvicorn --reload`'s WatchFiles reloader silently failed to swap in the new
+worker process on this Windows machine — the old process kept serving
+requests with pre-fix code for several requests after the reload log line
+appeared, making it look like the fix hadn't worked. Diagnosed by calling
+`query_classifier.classify_query` directly in a one-off script (confirmed
+the classification logic itself was already correct) before suspecting the
+running process; fixed by force-killing both the reloader and worker PIDs
+and starting a fresh `uvicorn` process without `--reload` for the rest of
+this session's manual verification.
+
+### Follow-up: ~6s was still too slow, and it wasn't Gemini's fault alone
+
+The user pushed back that even the fixed ~6s off-topic response was slow —
+correctly, since one classification call shouldn't take that long. Measured
+the actual components directly (a one-off script hitting the real Gemini
+API, not guesswork) rather than assuming it was all unavoidable network
+latency:
+
+- `genai.Client(api_key=...)` construction alone: **~1s, every time** —
+  `query_classifier.py` was building a brand-new client on every single
+  `classify_query()` call (`get_gemini_client()` had no caching), even
+  though nothing about the client differs between requests within a
+  process's lifetime.
+- Gemini's default "thinking" mode was adding measurable overhead
+  (`thinking_config=types.ThinkingConfig(thinking_budget=0)` shaved
+  ~0.5-1s off repeated calls in a side-by-side comparison) for a task —
+  picking one of four fixed labels — that needs zero reasoning depth.
+
+**Fix**: `_sdk_client()`, an `lru_cache`d factory keyed by `api_key`
+(same reasoning as `get_settings()`'s own caching — the key doesn't change
+within a process), replaces constructing `genai.Client` fresh per call;
+`thinking_budget=0` added to the classification request. Both changes are
+scoped to `query_classifier.py` only — the same technique would likely
+help `agent.py`'s condense/critique/rewrite calls too, but that wasn't
+what was reported slow and is a natural follow-up, not bundled in here.
+
+**Re-verified live** (fresh non-`--reload` process, per the gotcha above):
+four different off-topic questions now land in **1.0-2.4s** end-to-end
+through the real HTTP API, down from ~6s. A real compliance question
+("what controls mitigate the risk of unauthorized access?") was re-checked
+too — still classifies correctly and returns 17 real citations, confirming
+`thinking_budget=0` didn't degrade classification quality. Full backend
+suite still green after this fix.
+
+### Follow-up: the off-topic reply was the same sentence every time
+
+Also reported directly by the user: every off-topic question got the
+identical hardcoded reply, which reads as robotic in an actual
+conversation. Fixed by having `QueryClassification` carry an optional
+`reply` field that the classifier fills **in the same call** that
+classifies the question (not a second LLM round-trip — the system prompt
+now instructs: when category is `off_topic`, also write a short, warm,
+*varied* response to what the user actually said, then invite them to ask
+about compliance). `/query` and `/query/stream` use `classification.reply`
+directly, falling back to the old fixed sentence (renamed
+`_OFF_TOPIC_FALLBACK`) only if the model ever leaves it empty.
+
+**Live-verified real variety** — five different off-topic messages, each
+getting a distinct, actually-responsive reply (not paraphrases of the same
+template): a greeting got "I am doing well, thank you for asking!", "write
+me a poem about the ocean" got a request declined gracefully, "what's the
+weather" correctly noted no real-time data access, "tell me a joke"
+self-deprecated about not having a sense of humor, and a second "hi again"
+got "It is great to hear from you again" — all while staying on the same
+one-call classification budget (3.8s observed on one run, still nowhere
+near the old ~6-19s). Real compliance-question regression re-checked once
+more, still correct. Full backend suite still green.
 
 ## Learning checkpoint (from the roadmap)
 

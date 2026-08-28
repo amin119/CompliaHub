@@ -62,8 +62,10 @@ def _mock_agent_dependencies(monkeypatch):
     monkeypatch.setattr(retrieval, "global_search_context", lambda driver, query_vector: [])
     monkeypatch.setattr(
         answer_generation,
-        "generate_answer",
-        lambda question, chunks, graph_facts=None, community_context=None: f"answer to {question}",
+        "stream_answer",
+        lambda question, chunks, graph_facts=None, community_context=None: iter(
+            [f"answer to {question}"]
+        ),
     )
 
     def _fake_gemini(api_key, model, system_prompt, contents, schema):
