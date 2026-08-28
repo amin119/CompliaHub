@@ -4,6 +4,7 @@ from typing import Annotated, TypedDict
 
 from google import genai
 from google.genai import types
+from langgraph.config import get_stream_writer
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -12,6 +13,7 @@ from app.core.config import get_settings
 from app.models.document import Chunk
 from app.schemas.query import Citation, QueryResponse
 from app.services import answer_generation, retrieval
+from app.services import streaming_events as events
 from app.services.graph_store import CommunityWithEmbedding, ProvenancedRelationEdge
 
 # Part 1 scope decision (still true in Part 2): critique/rewrite/condense
@@ -175,10 +177,12 @@ def build_agent(db: Session, driver, checkpointer, max_iterations: int = DEFAULT
     def condense_question_node(state: AgentState) -> dict:
         # Runs once per turn, before planning/retrieval even starts. A
         # brand-new conversation (or a self-contained follow-up) has no
-        # history to condense against — skip the LLM call entirely rather
-        # than pay for a no-op rewrite.
+        # history to condense against — skip the LLM call (and the status
+        # event — nothing is actually happening yet) entirely rather than
+        # pay for a no-op rewrite.
         if not state["conversation_history"]:
             return {"search_query": state["question"]}
+        get_stream_writer()(events.status_event("condensing_question"))
         prompt = (
             f"Conversation so far:\n{_format_history(state['conversation_history'])}\n\n"
             f"Follow-up question: {state['question']}"
@@ -196,9 +200,11 @@ def build_agent(db: Session, driver, checkpointer, max_iterations: int = DEFAULT
         # savings for the common case where local evidence is enough. A
         # genuinely LLM-driven planner is natural follow-up work, not
         # required to make "plan" a real, distinct step already.
+        get_stream_writer()(events.status_event("planning"))
         return {"use_global_search": state["iteration"] > 0}
 
     def retrieve_node(state: AgentState) -> dict:
+        get_stream_writer()(events.status_event("retrieving"))
         context_chunks, query_vector = retrieval.vector_search(
             db, state["search_query"], top_k=5
         )
@@ -224,6 +230,7 @@ def build_agent(db: Session, driver, checkpointer, max_iterations: int = DEFAULT
         }
 
     def critique_node(state: AgentState) -> dict:
+        get_stream_writer()(events.status_event("critiquing"))
         if state["iteration"] >= state["max_iterations"]:
             # Budget exhausted (roadmap step 3) — answer with whatever
             # evidence exists rather than looping forever.
@@ -236,6 +243,7 @@ def build_agent(db: Session, driver, checkpointer, max_iterations: int = DEFAULT
         return {"sufficient": result.sufficient}
 
     def rewrite_query_node(state: AgentState) -> dict:
+        get_stream_writer()(events.status_event("rewriting_query"))
         prompt = (
             f"Original question: {state['question']}\n"
             f"Search query tried: {state['search_query']}\n"
@@ -246,16 +254,27 @@ def build_agent(db: Session, driver, checkpointer, max_iterations: int = DEFAULT
         return {"search_query": result.rewritten_query}
 
     def answer_node(state: AgentState) -> dict:
+        writer = get_stream_writer()
+        writer(events.status_event("generating_answer"))
         context_chunks = _resolve_chunks(state)
         graph_facts, community_context, citations = retrieval.render_evidence(
             db, context_chunks, state["graph_relations"], state["community_drilldowns"]
         )
-        answer = answer_generation.generate_answer(
+        # Always sourced via the streaming Gemini API and accumulated here,
+        # whether this run was itself invoked via `.invoke()` or `.stream()`
+        # — `writer` is a real no-op in the former case (see
+        # `run_agent`/`stream_agent`), so there's no special-casing needed
+        # to get one code path that works for both.
+        answer_chunks = []
+        for token in answer_generation.stream_answer(
             state["question"],
             context_chunks,
             graph_facts=graph_facts,
             community_context=community_context,
-        )
+        ):
+            answer_chunks.append(token)
+            writer(events.token_event(token))
+        answer = "".join(answer_chunks)
         return {
             "answer": answer,
             "citations": citations,
@@ -342,8 +361,52 @@ def run_agent(
         input_state["conversation_history"] = []
 
     final_state = compiled.invoke(input_state, config=config)
+    graph_evidence = retrieval.build_graph_evidence(
+        final_state["graph_relations"], final_state["community_drilldowns"]
+    )
     return QueryResponse(
         answer=final_state["answer"],
         citations=final_state["citations"],
         conversation_id=thread_id,
+        graph_evidence=graph_evidence,
     )
+
+
+def stream_agent(
+    question: str,
+    db: Session,
+    driver,
+    checkpointer,
+    conversation_id: str | None = None,
+    max_iterations: int = DEFAULT_MAX_ITERATIONS,
+):
+    """Phase 6 Part 2: same one-turn agent run as `run_agent`, but yields
+    `streaming_events` dicts as the graph executes instead of only
+    returning the final `QueryResponse`.
+
+    `stream_mode="custom"` surfaces exactly (and only) what each node
+    explicitly pushes through `get_stream_writer()` — no LangGraph-internal
+    bookkeeping leaks into what reaches the frontend. The final `done` event
+    is appended here, after the graph itself has finished, rather than
+    pushed by a node — it needs `graph_evidence`, which (like `run_agent`)
+    is computed from the finished checkpoint state, not something any single
+    node has access to mid-run.
+    """
+    compiled = build_agent(db, driver, checkpointer, max_iterations)
+    thread_id = conversation_id or str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
+
+    is_new_conversation = not compiled.get_state(config).values
+
+    input_state = _fresh_turn_fields(question, max_iterations)
+    if is_new_conversation:
+        input_state["conversation_history"] = []
+
+    for event in compiled.stream(input_state, config=config, stream_mode="custom"):
+        yield event
+
+    final_state = compiled.get_state(config).values
+    graph_evidence = retrieval.build_graph_evidence(
+        final_state["graph_relations"], final_state["community_drilldowns"]
+    )
+    yield events.done_event(thread_id, final_state["citations"], graph_evidence)

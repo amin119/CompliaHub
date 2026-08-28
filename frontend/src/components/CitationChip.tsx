@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { getDocumentChunks, type Citation, type DocumentChunk } from "@/lib/api";
 
 /**
@@ -51,24 +52,38 @@ export default function CitationChip({ citation }: { citation: Citation }) {
         type="button"
         onClick={handleToggle}
         aria-expanded={expanded}
-        className="rounded-full border border-zinc-300 bg-white px-2 py-0.5 text-xs text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+        className={`rounded-sm border px-2.5 py-0.5 text-xs transition-colors ${
+          expanded
+            ? "border-accent/40 bg-accent-soft text-accent"
+            : "border-surface-border bg-surface text-zinc-600 hover:border-accent/40 hover:text-accent dark:text-zinc-400"
+        }`}
       >
         {label}
       </button>
-      {expanded && (
-        <div className="mt-1 max-w-sm rounded-lg border border-zinc-200 bg-zinc-50 p-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
-          {loading && <span className="text-zinc-400 dark:text-zinc-500">Loading…</span>}
-          {error && <span className="text-red-600 dark:text-red-400">{error}</span>}
-          {chunk && (
-            <>
-              <p className="mb-1 font-medium text-zinc-500 dark:text-zinc-500">
-                {chunk.title ?? citation.document_filename}
-              </p>
-              <p className="whitespace-pre-wrap">{chunk.text}</p>
-            </>
-          )}
-        </div>
-      )}
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-1.5 max-w-sm rounded-sm border border-surface-border bg-background p-2.5 text-xs text-zinc-700 dark:text-zinc-300">
+              {loading && <span className="text-zinc-400 dark:text-zinc-500">Loading…</span>}
+              {error && <span className="text-red-600 dark:text-red-400">{error}</span>}
+              {chunk && (
+                <>
+                  <p className="mb-1 font-medium text-zinc-500 dark:text-zinc-500">
+                    {chunk.title ?? citation.document_filename}
+                  </p>
+                  <p className="whitespace-pre-wrap">{chunk.text}</p>
+                </>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

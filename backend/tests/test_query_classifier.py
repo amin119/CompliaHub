@@ -60,7 +60,19 @@ def test_classify_query_retries_on_validation_error_too():
     assert client.calls == query_classifier._MAX_RETRIES
 
 
-def test_all_three_categories_round_trip():
+def test_all_categories_round_trip():
     for category in QueryCategory:
         client = _FakeClassifierClient(result=QueryClassification(category=category))
         assert query_classifier.classify_query("q", client=client).category == category
+
+
+def test_reply_defaults_to_none_and_round_trips_when_set():
+    assert QueryClassification(category=QueryCategory.VECTOR).reply is None
+
+    client = _FakeClassifierClient(
+        result=QueryClassification(category=QueryCategory.OFF_TOPIC, reply="hi yourself!")
+    )
+    result = query_classifier.classify_query("hi", client=client)
+
+    assert result.category == QueryCategory.OFF_TOPIC
+    assert result.reply == "hi yourself!"

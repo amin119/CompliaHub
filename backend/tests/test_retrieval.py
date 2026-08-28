@@ -72,3 +72,51 @@ def test_render_evidence_formats_community_theme_and_drilldown_facts():
     assert community_context[0] == "Theme: Access Control Theme — About access control."
     assert len(community_context) == 2
     assert "Control:'A'" in community_context[1]
+
+
+def test_build_graph_evidence_with_no_relations_is_empty():
+    evidence = retrieval.build_graph_evidence([])
+
+    assert evidence.nodes == []
+    assert evidence.edges == []
+
+
+def test_build_graph_evidence_builds_deduped_nodes_and_one_edge():
+    chunk_id = str(uuid.uuid4())
+    relation = _edge(chunk_id)
+
+    evidence = retrieval.build_graph_evidence([relation])
+
+    assert {node.id for node in evidence.nodes} == {"Control:A", "Risk:B"}
+    assert len(evidence.edges) == 1
+    edge = evidence.edges[0]
+    assert edge.source == "Control:A"
+    assert edge.target == "Risk:B"
+    assert edge.relation_type == "requires"
+    assert str(edge.chunk_id) == chunk_id
+
+
+def test_build_graph_evidence_dedups_identical_relations():
+    chunk_id = str(uuid.uuid4())
+    relation = _edge(chunk_id)
+
+    # Same relation surfacing twice (e.g. local search plus a community
+    # drill-down both touching it) must collapse to one edge in the
+    # visualization, not render as a duplicate.
+    evidence = retrieval.build_graph_evidence([relation, relation])
+
+    assert len(evidence.edges) == 1
+    assert len(evidence.nodes) == 2
+
+
+def test_build_graph_evidence_includes_community_drilldown_relations():
+    chunk_id = str(uuid.uuid4())
+    relation = _edge(chunk_id)
+    community = CommunityWithEmbedding(
+        id="c1", title="Theme", summary="summary", embedding=[0.1]
+    )
+
+    evidence = retrieval.build_graph_evidence([], [(community, [relation])])
+
+    assert len(evidence.edges) == 1
+    assert len(evidence.nodes) == 2

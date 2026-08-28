@@ -46,20 +46,21 @@ class Settings(BaseSettings):
     voyage_model: str = "voyage-law-2"
     cohere_api_key: str = ""
     cohere_rerank_model: str = "rerank-v3.5"
-    # Grok (xAI) exposes an OpenAI-compatible Chat Completions API — answer
-    # generation uses the `openai` SDK pointed at xAI's base_url instead of a
-    # dedicated xAI SDK.
-    grok_api_key: str = ""
-    grok_base_url: str = "https://api.x.ai/v1"
-    answer_model: str = "grok-4.5"
 
     # Phase 3 — entity/relation extraction. Cheap/free-tier model since this
-    # runs once per chunk across the whole corpus, unlike Phase 2's one-shot
+    # runs once per chunk across the whole corpus, unlike Phase 2/6's one-shot
     # answer generation. Gemini's free tier has both per-minute and per-day
     # quotas — worth checking aistudio.google.com for current limits on
     # whichever model is set here before assuming a number.
     gemini_api_key: str = ""
     gemini_extraction_model: str = "gemini-3.1-flash-lite"
+    # Phase 6 Part 2: answer generation moved off Grok (xAI) onto Gemini too —
+    # the xAI account's zero-credits billing block had made every "live" test
+    # since Phase 2 mock this one call, which meant streaming could never be
+    # verified for real. Kept as its own setting (not reusing
+    # gemini_extraction_model) since the final answer is a different quality
+    # bar than per-chunk extraction and may warrant a heavier model later.
+    gemini_answer_model: str = "gemini-3.1-flash-lite"
 
 
 @lru_cache

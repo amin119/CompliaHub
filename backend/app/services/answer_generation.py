@@ -1,6 +1,7 @@
-from typing import Protocol
+from typing import Iterator, Protocol
 
-import openai
+from google import genai
+from google.genai import types
 
 from app.core.config import get_settings
 from app.models.document import Chunk
@@ -15,34 +16,67 @@ _SYSTEM_PROMPT = (
 
 
 class AnswerClient(Protocol):
-    """Flattened to a plain string return — not the OpenAI SDK's nested
-    `.choices[0].message.content` shape — so a test fake only needs one
-    trivial method, not to replicate that nested response object.
+    """Flattened to a plain string / string-iterator return — not the
+    OpenAI SDK's nested `.choices[0].message.content` shape this used to
+    mirror back when Grok was the answer model — so a test fake only needs
+    two trivial methods, not to replicate any SDK's response object.
     """
 
     def create_completion(self, model: str, messages: list[dict], max_tokens: int) -> str: ...
 
+    def stream_completion(
+        self, model: str, messages: list[dict], max_tokens: int
+    ) -> Iterator[str]: ...
 
-class _OpenAIAnswerClient:
-    """Adapter around the openai SDK's Chat Completions API, narrowed to the
-    one operation this module needs. Grok (xAI) exposes an OpenAI-compatible
-    API, so this uses the `openai` SDK pointed at xAI's base_url rather than
-    a dedicated xAI SDK.
+
+def _split_messages(messages: list[dict]) -> tuple[str, str]:
+    system_prompt = next(m["content"] for m in messages if m["role"] == "system")
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+    return system_prompt, user_content
+
+
+class _GeminiAnswerClient:
+    """Adapter around `google-genai`, narrowed to the two operations this
+    module needs. Phase 6 Part 2 moved final answer generation here from
+    Grok (xAI) specifically to unblock real token streaming — Gemini's SDK
+    streams natively via `generate_content_stream`, and this project already
+    depends on `google-genai` for extraction/classification, so this removes
+    an external dependency (and its billing block) instead of adding one.
     """
 
-    def __init__(self, api_key: str, base_url: str) -> None:
-        self._client = openai.OpenAI(api_key=api_key, base_url=base_url)
+    def __init__(self, api_key: str) -> None:
+        self._client = genai.Client(api_key=api_key)
 
     def create_completion(self, model: str, messages: list[dict], max_tokens: int) -> str:
-        completion = self._client.chat.completions.create(
-            model=model, messages=messages, max_tokens=max_tokens
+        system_prompt, content = _split_messages(messages)
+        response = self._client.models.generate_content(
+            model=model,
+            contents=content,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt, max_output_tokens=max_tokens
+            ),
         )
-        return completion.choices[0].message.content or ""
+        return response.text or ""
+
+    def stream_completion(
+        self, model: str, messages: list[dict], max_tokens: int
+    ) -> Iterator[str]:
+        system_prompt, content = _split_messages(messages)
+        stream = self._client.models.generate_content_stream(
+            model=model,
+            contents=content,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt, max_output_tokens=max_tokens
+            ),
+        )
+        for chunk in stream:
+            if chunk.text:
+                yield chunk.text
 
 
-def get_grok_client() -> AnswerClient:
+def get_answer_client() -> AnswerClient:
     settings = get_settings()
-    return _OpenAIAnswerClient(api_key=settings.grok_api_key, base_url=settings.grok_base_url)
+    return _GeminiAnswerClient(api_key=settings.gemini_api_key)
 
 
 def _format_context(context_chunks: list[Chunk]) -> str:
@@ -51,6 +85,39 @@ def _format_context(context_chunks: list[Chunk]) -> str:
         label = chunk.clause_number or chunk.title or f"chunk {i}"
         parts.append(f"[{i}] ({label}) {chunk.text}")
     return "\n\n".join(parts)
+
+
+def _build_messages(
+    question: str,
+    context_chunks: list[Chunk],
+    graph_facts: list[str] | None,
+    community_context: list[str] | None,
+) -> list[dict]:
+    """Shared by `generate_answer` and `stream_answer` — same prompt either
+    way, only how the response comes back differs.
+
+    Both `graph_facts` and `community_context` are **separate,
+    clearly-labeled sections** appended after the vector excerpts —
+    sectioned rather than interleaved with them or each other, so it stays
+    possible to tell which source (vector retrieval, graph traversal, or
+    corpus-wide clustering) actually drove a given part of the answer. Each
+    fact string is expected to already carry its own citation label (e.g. a
+    clause number), same as the numbered excerpts above it — except a
+    community's own summary line, which is a synthesized description, not
+    a specific cited claim.
+    """
+    content = f"Excerpts:\n\n{_format_context(context_chunks)}"
+    if graph_facts:
+        content += "\n\nGraph-derived facts:\n\n" + "\n".join(graph_facts)
+    if community_context:
+        content += "\n\nRelated themes (from corpus-wide clustering):\n\n" + "\n".join(
+            community_context
+        )
+    content += f"\n\nQuestion: {question}"
+    return [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": content},
+    ]
 
 
 def generate_answer(
@@ -65,16 +132,6 @@ def generate_answer(
     (Phase 4 Part 2) thematically related community summaries global search
     found.
 
-    Both `graph_facts` and `community_context` are **separate,
-    clearly-labeled sections** appended after the vector excerpts —
-    sectioned rather than interleaved with them or each other, so it stays
-    possible to tell which source (vector retrieval, graph traversal, or
-    corpus-wide clustering) actually drove a given part of the answer. Each
-    fact string is expected to already carry its own citation label (e.g. a
-    clause number), same as the numbered excerpts above it — except a
-    community's own summary line, which is a synthesized description, not
-    a specific cited claim.
-
     Returns plain answer text; the caller (the `/query` route) builds the
     structured `Citation` list directly from `context_chunks` (and, for
     Phase 4, from whichever chunks the graph facts / community drill-down
@@ -83,27 +140,34 @@ def generate_answer(
     faithfulness scoring is Phase 7 (evaluation harness) territory, not
     this baseline.
 
-    `client` defaults to the real Grok-backed adapter; pass a fake
+    `client` defaults to the real Gemini-backed adapter; pass a fake
     `AnswerClient` in tests to verify the prompt/citation formatting without
     a network call.
     """
-    client = client or get_grok_client()
+    client = client or get_answer_client()
     settings = get_settings()
-
-    content = f"Excerpts:\n\n{_format_context(context_chunks)}"
-    if graph_facts:
-        content += "\n\nGraph-derived facts:\n\n" + "\n".join(graph_facts)
-    if community_context:
-        content += "\n\nRelated themes (from corpus-wide clustering):\n\n" + "\n".join(
-            community_context
-        )
-    content += f"\n\nQuestion: {question}"
-
+    messages = _build_messages(question, context_chunks, graph_facts, community_context)
     return client.create_completion(
-        model=settings.answer_model,
-        messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": content},
-        ],
-        max_tokens=1024,
+        model=settings.gemini_answer_model, messages=messages, max_tokens=1024
+    )
+
+
+def stream_answer(
+    question: str,
+    context_chunks: list[Chunk],
+    client: AnswerClient | None = None,
+    graph_facts: list[str] | None = None,
+    community_context: list[str] | None = None,
+) -> Iterator[str]:
+    """Phase 6 Part 2: same prompt as `generate_answer`, but yields the
+    answer as it's generated instead of waiting for the full response —
+    what `/query/stream` (direct vector/graph paths) and the agent's
+    `answer_node` (both the streaming and non-streaming `/query` routes)
+    use to surface real tokens as Gemini produces them.
+    """
+    client = client or get_answer_client()
+    settings = get_settings()
+    messages = _build_messages(question, context_chunks, graph_facts, community_context)
+    yield from client.stream_completion(
+        model=settings.gemini_answer_model, messages=messages, max_tokens=1024
     )

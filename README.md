@@ -101,7 +101,7 @@ agent can be tested with mocked retrieval, and so on.
 | Document parsing | Docling (structure-aware PDF/DOCX) |
 | Embeddings | Voyage (`voyage-law-2`) |
 | Reranking | Cohere Rerank (`rerank-v3.5`) |
-| Answer generation | Grok (xAI), via the OpenAI-compatible SDK |
+| Answer generation | Google Gemini (`gemini-3.1-flash-lite`, streaming) |
 | Entity/relation extraction | Google Gemini (`gemini-3.1-flash-lite`, free tier) |
 | Community detection | `python-igraph` + `leidenalg` (Leiden algorithm) |
 | Agent orchestration | LangGraph (query classifier + plan/retrieve/critique/rewrite loop) |
@@ -128,7 +128,7 @@ agent can be tested with mocked retrieval, and so on.
 | 3 — Entity & relation extraction | ✅ Done | [docs/phase-3-extraction.md](docs/phase-3-extraction.md) |
 | 4 — Graph retrieval | ✅ Done | [docs/phase-4-graph-retrieval.md](docs/phase-4-graph-retrieval.md) |
 | 5 — Agentic orchestration | ✅ Done | [docs/phase-5-agentic-loop.md](docs/phase-5-agentic-loop.md) |
-| 6 — Frontend | 🔜 Planned | [docs/phase-6-frontend.md](docs/phase-6-frontend.md) |
+| 6 — Frontend | ✅ Done | [docs/phase-6-frontend.md](docs/phase-6-frontend.md) |
 | 7 — Evaluation harness | 🔜 Planned | [docs/phase-7-evaluation.md](docs/phase-7-evaluation.md) |
 | 8 — Scaling & hardening | 🔜 Planned | [docs/phase-8-scaling.md](docs/phase-8-scaling.md) |
 
@@ -167,6 +167,7 @@ uv run uvicorn app.main:app --reload --port 8000
 | `POST /documents` | Upload a PDF/DOCX for ingestion |
 | `GET /documents/{id}`, `GET /documents/{id}/chunks` | Check status and inspect results |
 | `POST /query` | Ask a question — classified and routed to vector/graph/agent retrieval, optionally continuing a `conversation_id` |
+| `POST /query/stream` | Same as `POST /query`, but Server-Sent Events — status updates plus real answer tokens as they're generated |
 | `GET /query/conversations/{id}`, `DELETE /query/conversations/{id}` | Inspect or forget a multi-turn agent conversation |
 | `http://localhost:8000/docs` | Interactive Swagger UI |
 
