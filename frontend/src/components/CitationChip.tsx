@@ -52,7 +52,7 @@ export default function CitationChip({ citation }: { citation: Citation }) {
         type="button"
         onClick={handleToggle}
         aria-expanded={expanded}
-        className={`rounded-sm border px-2.5 py-0.5 text-xs transition-colors ${
+        className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
           expanded
             ? "border-accent/40 bg-accent-soft text-accent"
             : "border-surface-border bg-surface text-zinc-600 hover:border-accent/40 hover:text-accent dark:text-zinc-400"
@@ -69,7 +69,7 @@ export default function CitationChip({ citation }: { citation: Citation }) {
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="mt-1.5 max-w-sm rounded-sm border border-surface-border bg-background p-2.5 text-xs text-zinc-700 dark:text-zinc-300">
+            <div className="mt-1.5 max-w-sm rounded-2xl border border-surface-border bg-background p-2.5 text-xs text-zinc-700 dark:text-zinc-300">
               {loading && <span className="text-zinc-400 dark:text-zinc-500">Loading…</span>}
               {error && <span className="text-red-600 dark:text-red-400">{error}</span>}
               {chunk && (

@@ -4,12 +4,12 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 
 /**
- * Visually identical to the real product's `CitationChip` (same classes,
- * same expand/collapse behavior) but never calls the API — the landing
- * page's evidence/chat-preview mockups use illustrative citations that
- * don't correspond to real ingested documents, so wiring them to
- * `CitationChip`'s real `GET /documents/{id}/chunks` fetch would just
- * surface a confusing error the moment a visitor clicked one.
+ * Visually identical to the real product's `CitationChip` (same
+ * expand/collapse behavior) but never calls the API — the landing page's
+ * evidence/chat-preview mockups use illustrative citations that don't
+ * correspond to real ingested documents, so wiring them to `CitationChip`'s
+ * real `GET /documents/{id}/chunks` fetch would just surface a confusing
+ * error the moment a visitor clicked one.
  */
 export default function DemoCitation({
   label,
@@ -28,10 +28,10 @@ export default function DemoCitation({
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
-        className={`rounded-sm border px-2.5 py-0.5 text-xs transition-colors ${
+        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
           expanded
-            ? "border-landing-accent/40 bg-landing-accent-soft text-landing-accent"
-            : "border-landing-border bg-landing-surface text-landing-fg/60 hover:border-landing-accent/40 hover:text-landing-accent"
+            ? "border-accent/40 bg-accent-soft text-accent"
+            : "border-surface-border bg-background text-muted hover:border-accent/40 hover:text-accent"
         }`}
       >
         {label}
@@ -45,8 +45,8 @@ export default function DemoCitation({
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="mt-1.5 max-w-sm rounded-sm border border-landing-border bg-landing-bg p-2.5 text-xs text-landing-fg/80">
-              <p className="mb-1 font-medium text-landing-fg/50">{title}</p>
+            <div className="mt-1.5 max-w-sm rounded-2xl border border-surface-border bg-surface p-3 text-xs text-foreground/80">
+              <p className="mb-1 font-medium text-muted">{title}</p>
               <p className="whitespace-pre-wrap">{excerpt}</p>
             </div>
           </motion.div>
