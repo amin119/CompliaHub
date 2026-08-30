@@ -154,3 +154,57 @@ export async function getDocumentChunks(documentId: string): Promise<DocumentChu
   if (!response.ok) throw new Error(await parseErrorDetail(response));
   return response.json();
 }
+
+export type ScanStatus = {
+  id: string;
+  repository_name: string | null;
+  source_type: string;
+  original_filename: string;
+  status: string;
+  error_message: string | null;
+  file_count: number | null;
+  total_size_bytes: number | null;
+  detected_languages: string[];
+  detected_frameworks: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export async function uploadScan(file: File): Promise<ScanStatus> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(`${API_URL}/scans`, { method: "POST", body: formData });
+  if (!response.ok) throw new Error(await parseErrorDetail(response));
+  return response.json();
+}
+
+export async function getScan(id: string): Promise<ScanStatus> {
+  const response = await fetch(`${API_URL}/scans/${id}`);
+  if (!response.ok) throw new Error(await parseErrorDetail(response));
+  return response.json();
+}
+
+export async function listScans(): Promise<ScanStatus[]> {
+  const response = await fetch(`${API_URL}/scans`);
+  if (!response.ok) throw new Error(await parseErrorDetail(response));
+  return response.json();
+}
+
+export type RepositoryFile = {
+  id: string;
+  relative_path: string;
+  language: string | null;
+  component_type: string;
+  size_bytes: number;
+  content_stored: boolean;
+};
+
+export async function getScanFiles(
+  scanId: string,
+  componentType?: string,
+): Promise<RepositoryFile[]> {
+  const query = componentType ? `?component_type=${encodeURIComponent(componentType)}` : "";
+  const response = await fetch(`${API_URL}/scans/${scanId}/files${query}`);
+  if (!response.ok) throw new Error(await parseErrorDetail(response));
+  return response.json();
+}

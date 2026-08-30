@@ -8,6 +8,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 const NAV_LINKS = [
   { href: "/chat", label: "Chat" },
   { href: "/documents", label: "Documents" },
+  { href: "/scanner", label: "Scanner" },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
