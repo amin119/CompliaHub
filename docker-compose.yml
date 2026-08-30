@@ -103,7 +103,7 @@ services:
       context: ./backend
       args:
         EXTRA: ingestion
-    command: ["uv", "run", "celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info", "-Q", "ingestion", "-I", "app.tasks.ingestion"]
+    command: ["uv", "run", "celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info", "-Q", "ingestion,scanner", "-I", "app.tasks.ingestion,app.tasks.scan"]
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0

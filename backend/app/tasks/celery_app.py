@@ -29,5 +29,12 @@ celery_app.conf.update(
         "extraction.extract_document": {"queue": "graph"},
         "extraction.resolve_and_load_document": {"queue": "graph"},
         "communities.detect": {"queue": "graph"},
+        # Its own queue name (not folded into "ingestion") even though it
+        # currently runs on the same worker-ingestion container below — this
+        # phase's own dependencies are stdlib-only, but a later phase adding
+        # AST/tree-sitter analysis can split this onto its own worker+extra
+        # without a queue-naming migration at that point.
+        "scanner.extract_repository": {"queue": "scanner"},
+        "scanner.detect_frameworks": {"queue": "scanner"},
     },
 )
