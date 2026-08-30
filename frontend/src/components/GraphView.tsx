@@ -67,7 +67,7 @@ export default function GraphView({ evidence }: { evidence: GraphEvidence }) {
   if (evidence.nodes.length === 0) return null;
 
   return (
-    <div className="mt-3 overflow-hidden rounded-sm border border-surface-border bg-background">
+    <div className="mt-3 overflow-hidden rounded-2xl border border-surface-border bg-background">
       <p className="border-b border-surface-border px-2.5 py-1.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-500">
         Retrieval graph — {evidence.nodes.length} entities, {evidence.edges.length} relations
       </p>

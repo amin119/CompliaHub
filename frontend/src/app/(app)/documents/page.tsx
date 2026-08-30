@@ -91,7 +91,9 @@ export default function DocumentsPage() {
     <div className="flex flex-1 flex-col items-center bg-background">
       <div className="flex w-full max-w-2xl flex-1 flex-col px-4 py-6 sm:py-8">
         <header className="mb-6">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Documents</h1>
+          <h1 className="font-display text-2xl font-normal tracking-tight text-foreground">
+            Documents
+          </h1>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
             Upload a PDF or DOCX standard to ingest it into the knowledge graph.
           </p>

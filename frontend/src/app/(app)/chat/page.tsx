@@ -133,8 +133,8 @@ export default function ChatPage() {
       <div className="flex w-full max-w-2xl flex-1 flex-col px-4 py-8 sm:py-10">
         <header className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <h1 className="font-serif text-2xl font-normal tracking-tight text-foreground">
-              Ask ComplianceHub
+            <h1 className="font-display text-2xl font-normal tracking-tight text-foreground">
+              Ask CompliaHub
             </h1>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
               ISO 42001 · ISO 27001 · GDPR — answered from your ingested standards.
@@ -157,7 +157,7 @@ export default function ChatPage() {
 
         <main
           ref={scrollRef}
-          className="flex flex-1 flex-col gap-5 overflow-y-auto rounded-sm border border-surface-border bg-surface p-5 sm:p-6"
+          className="flex flex-1 flex-col gap-5 overflow-y-auto rounded-3xl border border-surface-border bg-surface p-5 sm:p-6"
         >
           {messages.length === 0 && (
             <div className="m-auto flex max-w-sm flex-col items-center gap-6 text-center">
@@ -186,8 +186,8 @@ export default function ChatPage() {
                 transition={{ duration: 0.3, ease: "easeOut" }}
                 className={
                   message.role === "user"
-                    ? "ml-auto max-w-[80%] rounded-sm bg-accent px-4 py-2.5 text-sm text-accent-foreground"
-                    : `mr-auto max-w-[85%] rounded-sm border px-4 py-2.5 text-sm ${
+                    ? "ml-auto max-w-[80%] rounded-3xl rounded-br-md bg-cta px-4 py-2.5 text-sm text-accent-foreground"
+                    : `mr-auto max-w-[85%] rounded-3xl rounded-bl-md border px-4 py-2.5 text-sm ${
                         message.isError
                           ? "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
                           : "border-surface-border bg-background text-foreground"
@@ -229,13 +229,13 @@ export default function ChatPage() {
             onChange={(event) => setInput(event.target.value)}
             disabled={loading}
             placeholder="Ask about a control, clause, or gap analysis…"
-            className="flex-1 rounded-sm border border-surface-border bg-surface px-4 py-2.5 text-sm text-foreground placeholder:text-zinc-400 transition-shadow focus:border-accent/50 focus:ring-2 focus:ring-accent-soft focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex-1 rounded-full border border-surface-border bg-surface px-4 py-2.5 text-sm text-foreground placeholder:text-zinc-400 transition-shadow focus:border-accent/50 focus:ring-2 focus:ring-accent-soft focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
           />
           <button
             type="submit"
             disabled={loading || !input.trim()}
             aria-label="Send"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm bg-accent text-accent-foreground transition-opacity enabled:hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-cta text-accent-foreground transition-opacity enabled:hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
               <path

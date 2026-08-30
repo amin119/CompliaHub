@@ -1,50 +1,182 @@
 @import "tailwindcss";
 
-/* Shared app tokens, used by /chat and /documents. Do not repurpose these
-   for the landing rebuild below - the brief requires the existing app
-   stay untouched. Unchanged since Phase 6 Part 5/6. */
+/* Redefines Tailwind's `dark:` variant to key off the manual
+   `data-theme="dark"` attribute the theme toggle sets, instead of its
+   default `@media (prefers-color-scheme: dark)`. Without this, every
+   pre-existing `dark:` class throughout /chat, /documents, CitationChip,
+   and GraphView would keep responding to the OS preference only, while
+   the CSS variables above respond to the user's explicit toggle — the
+   two would visibly desync the moment someone's OS setting and their
+   in-app choice disagree. This one line keeps every existing `dark:`
+   class working correctly under the new toggle with no other file
+   needing to change. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ============================================================
+   UNIFIED DESIGN TOKENS — shared by the landing page, /chat, and
+   /documents. Previously the landing page and the app had entirely
+   separate token systems (the landing page was rebuilt several times
+   while the app stayed untouched, by explicit prior instruction). That
+   instruction has since changed: the app is now meant to share this same
+   visual language, so there is one token system, one dark-mode switch,
+   for the whole product.
+
+   Light mode: extracted from the user-supplied reference design (home
+   page design/home page.svg) - a job-matching platform ("Sahali") built
+   on a blue -> purple -> pink gradient. Colors are exact hex values
+   pulled from that file's own fills/gradient stops.
+
+   Dark mode: extracted from a second reference the user supplied
+   (home page design/original-*.webp - a different job platform,
+   "Loker") - near-black background, a bright green accent, and an
+   orange marquee gradient. Deliberately NOT the same colors dimmed down;
+   the user was explicit that dark mode should use this separate palette.
+   ============================================================ */
 :root {
-  --background: #f5efe3;
-  --foreground: #201e1a;
-  --surface: #fffcf6;
-  --surface-border: #ddd1b8;
-  --accent: #1d4b63;
-  --accent-foreground: #fbf7ee;
-  --accent-soft: rgba(29, 75, 99, 0.08);
-  --ring: #1d4b63;
+  --background: #ffffff;
+  --surface: #f5f5f5;
+  --surface-blue: #f3f6ff;
+  --surface-border: #e5e5e5;
+  --foreground: #0a0a0a;
+  --muted: #737373;
+
+  --accent: #0033ff;
+  --accent-foreground: #ffffff;
+  --accent-soft: #f3f6ff;
+  --purple: #977dff;
+  --pink: #ffccf2;
+
+  /* Button/CTA fill - a gradient in light mode, a solid color in dark
+     mode (see below) - both are valid values for the `background`
+     shorthand, so one token covers both. */
+  --cta-fill: linear-gradient(120deg, var(--accent) 0%, var(--purple) 65%, var(--pink) 100%);
+  /* The marquee band's own gradient - independent of the button fill,
+     since the two use different colors in dark mode. */
+  --marquee-fill: linear-gradient(120deg, var(--accent) 0%, var(--purple) 65%, var(--pink) 100%);
+
+  /* Page-level ambient glows (top + two bottom corners). Dark mode uses a
+     single subdued top glow instead - see the Loker reference, which has
+     no pink/blue bottom bleed at all. */
+  --glow-top: radial-gradient(60% 50% at 50% 0%, var(--pink) 0%, transparent 70%);
+  --glow-bottom-left: radial-gradient(45% 40% at 0% 100%, var(--pink) 0%, transparent 70%);
+  --glow-bottom-right: radial-gradient(45% 40% at 100% 100%, var(--surface-blue) 0%, transparent 70%);
+
+  --ring: var(--accent);
+}
+
+:root[data-theme="dark"] {
+  --background: #0a0d0a;
+  --surface: #151815;
+  --surface-blue: #16201a;
+  --surface-border: #262b26;
+  --foreground: #f2f4f2;
+  --muted: #9aa39a;
+
+  --accent: #22c55e;
+  --accent-foreground: #06210f;
+  --accent-soft: rgba(34, 197, 94, 0.14);
+  --purple: #4ade80;
+  --pink: #86efac;
+
+  --cta-fill: var(--accent);
+  --marquee-fill: linear-gradient(120deg, #f97316 0%, #fb923c 100%);
+
+  --glow-top: radial-gradient(60% 45% at 50% 0%, rgba(34, 197, 94, 0.16) 0%, transparent 75%);
+  --glow-bottom-left: none;
+  --glow-bottom-right: none;
+
+  --ring: var(--accent);
+}
+
+/* Falls back to the OS preference only until the user makes an explicit
+   choice (the inline script in layout.tsx sets data-theme from
+   localStorage, defaulting to this same media query on first visit). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    --background: #0a0d0a;
+    --surface: #151815;
+    --surface-blue: #16201a;
+    --surface-border: #262b26;
+    --foreground: #f2f4f2;
+    --muted: #9aa39a;
+    --accent: #22c55e;
+    --accent-foreground: #06210f;
+    --accent-soft: rgba(34, 197, 94, 0.14);
+    --purple: #4ade80;
+    --pink: #86efac;
+    --cta-fill: var(--accent);
+    --marquee-fill: linear-gradient(120deg, #f97316 0%, #fb923c 100%);
+    --glow-top: radial-gradient(60% 45% at 50% 0%, rgba(34, 197, 94, 0.16) 0%, transparent 75%);
+    --glow-bottom-left: none;
+    --glow-bottom-right: none;
+    --ring: var(--accent);
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-surface: var(--surface);
+  --color-surface-blue: var(--surface-blue);
   --color-surface-border: var(--surface-border);
+  --color-muted: var(--muted);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent-soft: var(--accent-soft);
+  --color-purple: var(--purple);
+  --color-pink: var(--pink);
   --color-ring: var(--ring);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-serif: var(--font-serif);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #15181a;
-    --foreground: #eef1ee;
-    --surface: #1b2023;
-    --surface-border: #2c3236;
-    --accent: #6fa9c2;
-    --accent-foreground: #0d1416;
-    --accent-soft: rgba(111, 169, 194, 0.16);
-    --ring: #6fa9c2;
-  }
+  --font-sans: var(--font-sans-base);
+  --font-display: var(--font-display);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.font-display {
+  font-family: var(--font-display), Arial, Helvetica, sans-serif;
+}
+
+.bg-cta {
+  background: var(--cta-fill);
+}
+
+.bg-marquee {
+  background: var(--marquee-fill);
+}
+
+.text-gradient {
+  background: var(--cta-fill);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+/* One page-level ambient background, used behind the landing page (and
+   available anywhere else that wants it). Sits at z-index -10 behind
+   normal content; sections with an opaque background simply cover it,
+   the same way the reference design's white cards cover its own glow
+   except right behind the hero and right above the footer. */
+.bg-ambient-glow {
+  background-image: var(--glow-top), var(--glow-bottom-left), var(--glow-bottom-right);
+  background-repeat: no-repeat;
+  background-position:
+    top center,
+    bottom left,
+    bottom right;
+  background-size:
+    100% 600px,
+    50% 400px,
+    50% 400px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 @keyframes blink-caret {
@@ -62,94 +194,27 @@ body {
   animation: blink-caret 1s step-end infinite;
 }
 
-/* Landing-page-only design tokens (brief section 3).
-   Deliberately namespaced (--landing-*), separate from the --color-*
-   and --font-* tokens above, which /chat and /documents depend on.
-   Applied only via the .font-landing-sans / .font-landing-serif utility
-   classes and the landing-* color utilities below, never through
-   Tailwind's built-in font-sans / font-serif / bg-background classes -
-   those stay wired to the app tokens above. */
-:root {
-  --landing-marble: #f4f0e8;
-  --landing-parchment: #ede6d6;
-  --landing-stone: #d8d0bf;
-  --landing-charcoal: #22201c;
-  --landing-aegean: #1f3a52;
-  --landing-olive: #4b4a2f;
-  --landing-terracotta: #a85c3f;
-  --landing-bronze: #8a6e45;
-
-  --landing-bg: var(--landing-marble);
-  --landing-surface: var(--landing-parchment);
-  --landing-border: var(--landing-stone);
-  --landing-fg: var(--landing-charcoal);
-  /* Brief section 3: one accent for interactive elements (aegean, for
-     links and buttons); bronze is reserved for the thread itself and its
-     active states. The two converge to a single bronze accent in dark
-     mode, per the brief's own dark-mode guidance. */
-  --landing-accent: var(--landing-aegean);
-  --landing-accent-fg: var(--landing-marble);
-  --landing-accent-soft: rgba(31, 58, 82, 0.08);
-  --landing-thread: var(--landing-bronze);
+/* The diagonal marquee band. A plain CSS keyframe translate loop, not
+   GSAP: it never needs to react to scroll position, and it already
+   respects prefers-reduced-motion via the media query below rather than
+   a JS check. */
+.marquee-track {
+  animation: marquee-scroll 22s linear infinite;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --landing-bg: #17150f;
-    --landing-surface: #201d16;
-    --landing-border: #34302a;
-    --landing-fg: var(--landing-marble);
-    --landing-accent: #c9a875;
-    --landing-accent-fg: #17150f;
-    --landing-accent-soft: rgba(201, 168, 117, 0.14);
-    --landing-thread: #c9a875;
+@keyframes marquee-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
   }
 }
 
-@theme inline {
-  --color-landing-bg: var(--landing-bg);
-  --color-landing-surface: var(--landing-surface);
-  --color-landing-border: var(--landing-border);
-  --color-landing-fg: var(--landing-fg);
-  --color-landing-accent: var(--landing-accent);
-  --color-landing-accent-fg: var(--landing-accent-fg);
-  --color-landing-accent-soft: var(--landing-accent-soft);
-  --color-landing-thread: var(--landing-thread);
-  --color-landing-olive: var(--landing-olive);
-  --color-landing-terracotta: var(--landing-terracotta);
-  --font-landing-sans: var(--font-landing-sans);
-  --font-landing-serif: var(--font-landing-serif);
-}
-
-.font-landing-sans {
-  font-family: var(--font-landing-sans), Arial, Helvetica, sans-serif;
-}
-
-.font-landing-serif {
-  font-family: var(--font-landing-serif), Georgia, serif;
-}
-
-/* Brief section 8: focus states styled in the landing's own accent, not
-   the default blue browser outline. Scoped under .font-landing-sans (the
-   landing page's own root wrapper) rather than a bare `a, button`
-   selector, so this never affects focus styling on /chat or /documents. */
-.font-landing-sans :focus-visible {
-  outline: 2px solid var(--landing-accent);
-  outline-offset: 2px;
-}
-
-/* Fine paper-grain dot field, landing hero backdrop only. */
-.bg-landing-grain {
-  background-image: radial-gradient(currentColor 0.5px, transparent 0.5px);
-  background-size: 14px 14px;
-}
-
-/* A quiet architectural blueprint cross-hatch, landing footer only. */
-.bg-landing-blueprint {
-  background-image:
-    linear-gradient(currentColor 1px, transparent 1px),
-    linear-gradient(90deg, currentColor 1px, transparent 1px);
-  background-size: 64px 64px;
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+  }
 }
 
 ::selection {
