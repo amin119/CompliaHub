@@ -13,34 +13,10 @@ import re
 from app.services.security_analysis import ast_utils
 from app.services.security_analysis.base import FunctionRule, RuleContext, RuleHit
 
-_LOGGER_NAME_RE = re.compile(r"^(logger|log|logging)$", re.IGNORECASE)
-_LOG_METHODS = {"debug", "info", "warning", "error", "critical", "exception"}
 _HIGH_SENSITIVITY_ATTRS = {"password", "token", "secret", "ssn"}
 _SENSITIVE_ATTR_RE = re.compile(
     r"^(email|password|token|secret|ssn|credit_card|phone)$", re.IGNORECASE
 )
-
-
-def _is_logger_call(node: ast.Call) -> str | None:
-    """Returns the log method name (`"info"`, etc.) if `node` calls a
-    logger-shaped object, else `None`.
-    """
-    if not isinstance(node.func, ast.Attribute) or node.func.attr not in _LOG_METHODS:
-        return None
-    receiver = node.func.value
-    if isinstance(receiver, ast.Name) and _LOGGER_NAME_RE.match(receiver.id):
-        return node.func.attr
-    if isinstance(receiver, ast.Attribute) and _LOGGER_NAME_RE.match(receiver.attr):
-        return node.func.attr
-    return None
-
-
-def _sensitive_attrs_in(node: ast.AST) -> list[str]:
-    found = []
-    for sub in ast.walk(node):
-        if isinstance(sub, ast.Attribute) and _SENSITIVE_ATTR_RE.match(sub.attr):
-            found.append(sub.attr)
-    return found
 
 
 def _detect_python(context: RuleContext) -> list[RuleHit]:
@@ -51,13 +27,13 @@ def _detect_python(context: RuleContext) -> list[RuleHit]:
     for node in ast.walk(context.tree):
         if not isinstance(node, ast.Call):
             continue
-        method = _is_logger_call(node)
+        method = ast_utils.is_logger_call(node)
         if method is None:
             continue
 
         sensitive_attrs: list[str] = []
         for arg in list(node.args) + [kw.value for kw in node.keywords]:
-            sensitive_attrs.extend(_sensitive_attrs_in(arg))
+            sensitive_attrs.extend(ast_utils.attribute_names_matching(arg, _SENSITIVE_ATTR_RE))
         if not sensitive_attrs:
             continue
 

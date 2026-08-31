@@ -37,6 +37,7 @@ export default function ScanDetailPage() {
   const [files, setFiles] = useState<RepositoryFile[]>([]);
   const [filterType, setFilterType] = useState<string | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
+  const [frameworkFilter, setFrameworkFilter] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"files" | "findings">("files");
   const [error, setError] = useState<string | null>(null);
 
@@ -50,14 +51,16 @@ export default function ScanDetailPage() {
     };
   }, [scanId]);
 
-  // Poll until BOTH independent status tracks reach a terminal value — a
+  // Poll until ALL independent status tracks reach a terminal value — a
   // scan's files can be browsable (`status: "ready"`) well before the
-  // heavier security-rule pass (`findings_status`) has finished.
+  // security-rule pass (`findings_status`), which itself finishes before
+  // the GDPR pass (`privacy_status`).
   useEffect(() => {
     if (!scan) return;
     const scanDone = TERMINAL_STATUSES.includes(scan.status);
     const findingsDone = TERMINAL_STATUSES.includes(scan.findings_status);
-    if (scanDone && findingsDone) return;
+    const privacyDone = TERMINAL_STATUSES.includes(scan.privacy_status);
+    if (scanDone && findingsDone && privacyDone) return;
 
     const timeoutId = setTimeout(() => {
       getScan(scanId).then(setScan).catch(() => {});
@@ -72,8 +75,12 @@ export default function ScanDetailPage() {
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load files."));
   }, [scan, scanId, filterType]);
 
+  // Re-fetch findings whenever either rule pass reaches "ready": the GDPR
+  // (`privacy_status`) findings land after the security (`findings_status`)
+  // ones, and a single unfiltered fetch returns both frameworks' rows.
   useEffect(() => {
-    if (!scan || scan.findings_status !== "ready") return;
+    if (!scan) return;
+    if (scan.findings_status !== "ready" && scan.privacy_status !== "ready") return;
     getScanFindings(scanId)
       .then(setFindings)
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load findings."));
@@ -96,6 +103,18 @@ export default function ScanDetailPage() {
   }
 
   const componentTypesPresent = Array.from(new Set(files.map((f) => f.component_type)));
+  // Framework filter chips, computed client-side from whichever framework
+  // values are actually present — the same pattern the Files tab uses for
+  // component types, so it scales to a third framework with no rework. A
+  // null framework renders as "General".
+  const frameworkLabel = (framework: string | null) => framework ?? "General";
+  const frameworksPresent = Array.from(
+    new Set(findings.map((f) => frameworkLabel(f.framework))),
+  );
+  const visibleFindings =
+    frameworkFilter === null
+      ? findings
+      : findings.filter((f) => frameworkLabel(f.framework) === frameworkFilter);
   const severityCounts = SEVERITY_ORDER.map((severity) => ({
     severity,
     count: findings.filter((f) => f.severity === severity).length,
@@ -113,6 +132,9 @@ export default function ScanDetailPage() {
             {scan.status === "ready" && scan.findings_status !== "ready" && (
               <StatusBadge status={scan.findings_status} />
             )}
+            {scan.status === "ready" &&
+              scan.findings_status === "ready" &&
+              scan.privacy_status !== "ready" && <StatusBadge status={scan.privacy_status} />}
           </div>
           {scan.status !== "ready" && scan.status !== "failed" && (
             <p className="mt-1 text-sm text-muted">
@@ -125,6 +147,11 @@ export default function ScanDetailPage() {
           {scan.findings_status === "failed" && scan.findings_error_message && (
             <p className="mt-1 text-sm text-red-600 dark:text-red-400">
               Security analysis failed: {scan.findings_error_message}
+            </p>
+          )}
+          {scan.privacy_status === "failed" && scan.privacy_error_message && (
+            <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+              GDPR analysis failed: {scan.privacy_error_message}
             </p>
           )}
         </header>
@@ -272,46 +299,84 @@ export default function ScanDetailPage() {
             )}
 
             {activeTab === "findings" && (
-              <div className="overflow-hidden rounded-2xl border border-surface-border">
-                {scan.findings_status !== "ready" ? (
-                  <p className="px-3 py-4 text-center text-xs text-muted">
-                    Security analysis {scan.findings_status === "failed" ? "failed" : "still running"}…
-                  </p>
-                ) : (
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-surface text-xs text-muted">
-                      <tr>
-                        <th className="px-3 py-2 font-medium">Severity</th>
-                        <th className="px-3 py-2 font-medium">Title</th>
-                        <th className="px-3 py-2 font-medium">Category</th>
-                        <th className="px-3 py-2 font-medium">Confidence</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {findings.map((finding) => (
-                        <tr key={finding.id} className="border-t border-surface-border align-top">
-                          <td className="px-3 py-2">
-                            <SeverityBadge severity={finding.severity} />
-                          </td>
-                          <td className="px-3 py-2 text-xs text-foreground">
-                            <p className="font-medium">{finding.title}</p>
-                            <p className="mt-0.5 text-muted">{finding.summary}</p>
-                          </td>
-                          <td className="px-3 py-2 text-xs text-muted">{finding.category}</td>
-                          <td className="px-3 py-2 text-xs text-muted">{finding.confidence}</td>
-                        </tr>
-                      ))}
-                      {findings.length === 0 && (
-                        <tr>
-                          <td colSpan={4} className="px-3 py-4 text-center text-xs text-muted">
-                            No findings — nothing this scan&apos;s rules flagged.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+              <>
+                {scan.findings_status === "ready" && frameworksPresent.length > 0 && (
+                  <div className="mb-3 flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setFrameworkFilter(null)}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                        frameworkFilter === null
+                          ? "border-accent bg-accent-soft text-accent"
+                          : "border-surface-border text-muted hover:text-foreground"
+                      }`}
+                    >
+                      All
+                    </button>
+                    {frameworksPresent.map((framework) => (
+                      <button
+                        key={framework}
+                        type="button"
+                        onClick={() => setFrameworkFilter(framework)}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                          frameworkFilter === framework
+                            ? "border-accent bg-accent-soft text-accent"
+                            : "border-surface-border text-muted hover:text-foreground"
+                        }`}
+                      >
+                        {framework}
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </div>
+
+                <div className="overflow-hidden rounded-2xl border border-surface-border">
+                  {scan.findings_status !== "ready" ? (
+                    <p className="px-3 py-4 text-center text-xs text-muted">
+                      Security analysis {scan.findings_status === "failed" ? "failed" : "still running"}…
+                    </p>
+                  ) : (
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-surface text-xs text-muted">
+                        <tr>
+                          <th className="px-3 py-2 font-medium">Severity</th>
+                          <th className="px-3 py-2 font-medium">Title</th>
+                          <th className="px-3 py-2 font-medium">Framework</th>
+                          <th className="px-3 py-2 font-medium">Category</th>
+                          <th className="px-3 py-2 font-medium">Confidence</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleFindings.map((finding) => (
+                          <tr key={finding.id} className="border-t border-surface-border align-top">
+                            <td className="px-3 py-2">
+                              <SeverityBadge severity={finding.severity} />
+                            </td>
+                            <td className="px-3 py-2 text-xs text-foreground">
+                              <p className="font-medium">{finding.title}</p>
+                              <p className="mt-0.5 text-muted">{finding.summary}</p>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className="rounded-full bg-surface-blue px-2.5 py-0.5 text-xs text-foreground">
+                                {finding.framework ?? "General"}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-muted">{finding.category}</td>
+                            <td className="px-3 py-2 text-xs text-muted">{finding.confidence}</td>
+                          </tr>
+                        ))}
+                        {visibleFindings.length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="px-3 py-4 text-center text-xs text-muted">
+                              No findings — nothing this scan&apos;s rules flagged.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </>
             )}
           </>
         )}

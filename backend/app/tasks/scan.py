@@ -1,5 +1,10 @@
 from app.models.scan import Evidence, Finding, RepositoryFile
 from app.services import repo_discovery, scan_storage, storage
+from app.services.ai_analysis import ai_imports
+from app.services.ai_analysis import repo_level_checks as ai_repo_level_checks
+from app.services.ai_analysis.registry import AI_RULES
+from app.services.privacy_analysis import repo_level_checks
+from app.services.privacy_analysis.registry import PRIVACY_RULES
 from app.services.repo_extraction import iter_zip_entries
 from app.services.security_analysis.ast_utils import safe_parse
 from app.services.security_analysis.base import RuleContext
@@ -142,12 +147,33 @@ def run_security_analyzers_task(scan_id: str) -> str:
     ) as (db, scan):
         # Idempotency: rerunning this stage must not double every finding —
         # same clear-then-rebuild pattern used throughout this pipeline.
-        # Evidence rows are cleared explicitly too: `Evidence.finding_id`
-        # is `ondelete="SET NULL"` (deliberately, see the model's own
-        # comment), so deleting a Finding alone would leave its Evidence
-        # rows behind as orphans instead of removed.
-        db.query(Evidence).filter(Evidence.scan_id == scan.id).delete(synchronize_session=False)
-        db.query(Finding).filter(Finding.scan_id == scan.id).delete(synchronize_session=False)
+        #
+        # SCOPED BY FRAMEWORK (fixed in Phase 3): this clear must only touch
+        # this framework's own rows. Before Phase 3 this deleted every
+        # Finding for the scan regardless of framework; once Phase 3 writes
+        # GDPR findings to the same table, an unscoped rerun of *this* task
+        # would silently wipe every GDPR finding. Phase 2's rows are exactly
+        # those with `framework IS NULL`.
+        #
+        # Evidence rows are cleared explicitly too, scoped via a
+        # `finding_id IN (subquery over this framework's findings)` filter
+        # rather than a bare `Evidence.scan_id` match — otherwise this would
+        # also delete the GDPR findings' evidence. `Evidence.finding_id` is
+        # `ondelete="SET NULL"` (deliberately, see the model's own comment),
+        # so deleting a Finding alone would leave its Evidence rows behind as
+        # orphans instead of removed.
+        security_finding_ids = (
+            db.query(Finding.id)
+            .filter(Finding.scan_id == scan.id, Finding.framework.is_(None))
+            .scalar_subquery()
+        )
+        db.query(Evidence).filter(
+            Evidence.scan_id == scan.id,
+            Evidence.finding_id.in_(security_finding_ids),
+        ).delete(synchronize_session=False)
+        db.query(Finding).filter(
+            Finding.scan_id == scan.id, Finding.framework.is_(None)
+        ).delete(synchronize_session=False)
 
         client = storage.get_minio_client()
         repository_files = (
@@ -179,7 +205,10 @@ def run_security_analyzers_task(scan_id: str) -> str:
                 for hit in rule.detect(context):
                     finding = Finding(
                         scan_id=scan.id,
-                        category=rule.category,
+                        # `hit.category` overrides `rule.category` when a
+                        # rule's hits vary by category at runtime — see
+                        # `RuleHit.category`'s docstring.
+                        category=hit.category or rule.category,
                         rule_id=rule.rule_id,
                         title=hit.title,
                         status=hit.status,
@@ -209,9 +238,296 @@ def run_security_analyzers_task(scan_id: str) -> str:
                             snippet=hit.snippet,
                             description=hit.summary,
                             confidence=hit.confidence,
+                            evidence_metadata=hit.evidence_metadata,
                         )
                     )
 
         scan.findings_status = "ready"
 
     return scan_id
+
+
+@celery_app.task(name="scanner.run_privacy_analyzers")
+def run_privacy_analyzers_task(scan_id: str) -> str:
+    """Stage 4: run every rule in the privacy-analysis (GDPR) registry
+    against every stored, decodable file, plus the repo-level aggregate
+    checks, recording `Finding` (`framework="GDPR"`) + `Evidence` pairs.
+
+    Tracked on `Scan.privacy_status`/`Scan.privacy_error_message` — a third
+    independent status track, distinct from `findings_status`. This is a
+    genuinely separate failure domain: the two rule passes have *different*
+    idempotent-clear scopes (see below), and getting either wrong is a real
+    data-loss bug.
+    """
+    with scan_stage(
+        scan_id,
+        "run_privacy_analyzers",
+        "analyzing_privacy",
+        status_field="privacy_status",
+        error_field="privacy_error_message",
+    ) as (db, scan):
+        # Idempotency, SCOPED BY FRAMEWORK (the symmetric half of Phase 2's
+        # fix): this clear must only touch this framework's own rows —
+        # `Finding.framework == "GDPR"` — so a rerun of *this* task never
+        # wipes Phase 2's security findings (`framework IS NULL`). Evidence
+        # is cleared via a `finding_id IN (subquery over GDPR findings)`
+        # filter rather than a bare `Evidence.scan_id` match or a join-delete,
+        # for the same orphan-avoidance reason Phase 2's clear documents.
+        gdpr_finding_ids = (
+            db.query(Finding.id)
+            .filter(Finding.scan_id == scan.id, Finding.framework == "GDPR")
+            .scalar_subquery()
+        )
+        db.query(Evidence).filter(
+            Evidence.scan_id == scan.id,
+            Evidence.finding_id.in_(gdpr_finding_ids),
+        ).delete(synchronize_session=False)
+        db.query(Finding).filter(
+            Finding.scan_id == scan.id, Finding.framework == "GDPR"
+        ).delete(synchronize_session=False)
+
+        client = storage.get_minio_client()
+        repository_files = (
+            db.query(RepositoryFile)
+            .filter(
+                RepositoryFile.scan_id == scan.id,
+                RepositoryFile.content_stored.is_(True),
+            )
+            .all()
+        )
+
+        # Accumulated across the whole file loop — a repo-level aggregate
+        # fact, not a per-file one (see repo_level_checks' module docstring).
+        found_deletion_route = False
+
+        for repository_file in repository_files:
+            raw = scan_storage.download_object(client, repository_file.minio_object_key)
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                continue  # Not actually text despite passing the binary heuristic — skip.
+
+            tree = safe_parse(text) if repository_file.language == "python" else None
+            context = RuleContext(
+                relative_path=repository_file.relative_path,
+                language=repository_file.language,
+                component_type=repository_file.component_type,
+                text=text,
+                tree=tree,
+            )
+
+            if not found_deletion_route:
+                found_deletion_route = repo_level_checks.weak_positive_deletion_signal(context)
+
+            for rule in PRIVACY_RULES:
+                for hit in rule.detect(context):
+                    _write_finding(
+                        db,
+                        scan,
+                        # `hit.category` overrides `rule.category` when a
+                        # rule's hits vary by category at runtime (e.g.
+                        # `pii_fields`'s data_minimisation vs.
+                        # special_category_data) — see `RuleHit.category`.
+                        hit.category or rule.category,
+                        rule.rule_id,
+                        hit,
+                        framework="GDPR",
+                        evidence_source_type=rule.evidence_source_type,
+                        repository_file=repository_file,
+                    )
+
+        # Repo-level fixed + absence-only findings — always emitted once per
+        # scan, called directly (not registered in PRIVACY_RULES). These
+        # have no per-file evidence, so no Evidence row is attached. Each
+        # comes back paired with its own category (not re-derived from the
+        # hit's title text — see `build_repo_level_findings`'s docstring).
+        privacy_doc_present = repo_level_checks.privacy_policy_doc_present(repository_files)
+        for category, hit in repo_level_checks.build_repo_level_findings(
+            found_deletion_route, privacy_doc_present
+        ):
+            _write_finding(
+                db,
+                scan,
+                category,
+                "GDPR-REPO-LEVEL",
+                hit,
+                framework="GDPR",
+                evidence_source_type="repo_aggregate",
+                repository_file=None,
+            )
+
+        scan.privacy_status = "ready"
+
+    return scan_id
+
+
+@celery_app.task(name="scanner.run_ai_analyzers")
+def run_ai_analyzers_task(scan_id: str) -> str:
+    """Stage 5: run every rule in the AI-analysis (ISO 42001) registry
+    against every stored, decodable file, plus the repo-level aggregate
+    inventory/governance checks, recording `Finding` (`framework=
+    "ISO42001"`) + `Evidence` pairs.
+
+    Tracked on `Scan.ai_status`/`Scan.ai_error_message` — a fourth
+    independent status track. Its idempotent-clear scope
+    (`Finding.framework == "ISO42001"`) differs from both Phase 2's
+    (`framework IS NULL`) and Phase 3's (`framework == "GDPR"`), the same
+    "genuinely separate failure domain" reasoning that justified
+    `privacy_status` as its own track rather than sharing `findings_status`.
+    """
+    with scan_stage(
+        scan_id,
+        "run_ai_analyzers",
+        "analyzing_ai",
+        status_field="ai_status",
+        error_field="ai_error_message",
+    ) as (db, scan):
+        # Idempotency, SCOPED BY FRAMEWORK (same pattern as Phase 3's fix):
+        # this clear must only touch `framework == "ISO42001"` rows, so a
+        # rerun of *this* task never wipes Phase 2's or Phase 3's findings,
+        # and vice versa.
+        ai_finding_ids = (
+            db.query(Finding.id)
+            .filter(Finding.scan_id == scan.id, Finding.framework == "ISO42001")
+            .scalar_subquery()
+        )
+        db.query(Evidence).filter(
+            Evidence.scan_id == scan.id,
+            Evidence.finding_id.in_(ai_finding_ids),
+        ).delete(synchronize_session=False)
+        db.query(Finding).filter(
+            Finding.scan_id == scan.id, Finding.framework == "ISO42001"
+        ).delete(synchronize_session=False)
+
+        client = storage.get_minio_client()
+        repository_files = (
+            db.query(RepositoryFile)
+            .filter(
+                RepositoryFile.scan_id == scan.id,
+                RepositoryFile.content_stored.is_(True),
+            )
+            .all()
+        )
+
+        # Accumulated across the whole file loop: which AI_RULES categories
+        # fired at least once anywhere (the per-file rules' own results
+        # *are* the signal — no separate detection pass needed), and which
+        # distinct LLM/embedding-provider labels were imported anywhere
+        # (for the inventory's "models" list). See
+        # `repo_level_checks.build_ai_repo_level_findings`'s docstring for
+        # why the signal-type threshold exists at all.
+        signal_categories: set[str] = set()
+        ai_provider_labels: set[str] = set()
+
+        for repository_file in repository_files:
+            raw = scan_storage.download_object(client, repository_file.minio_object_key)
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                continue  # Not actually text despite passing the binary heuristic — skip.
+
+            tree = safe_parse(text) if repository_file.language == "python" else None
+            context = RuleContext(
+                relative_path=repository_file.relative_path,
+                language=repository_file.language,
+                component_type=repository_file.component_type,
+                text=text,
+                tree=tree,
+            )
+
+            for _name, label, kind, _line in ai_imports.detect_ai_imports(context):
+                if kind == "llm_provider":
+                    ai_provider_labels.add(label)
+
+            for rule in AI_RULES:
+                hits = rule.detect(context)
+                if hits:
+                    signal_categories.add(rule.category)
+                for hit in hits:
+                    _write_finding(
+                        db,
+                        scan,
+                        hit.category or rule.category,
+                        rule.rule_id,
+                        hit,
+                        framework="ISO42001",
+                        evidence_source_type=rule.evidence_source_type,
+                        repository_file=repository_file,
+                    )
+
+        # Repo-level inventory + governance findings — only emitted when
+        # at least two independent signal types were seen anywhere in the
+        # scan (see the module docstring: a single AI import must not turn
+        # a plain CRUD repo into nine "AI governance missing" findings).
+        model_card_present = ai_repo_level_checks.model_card_doc_present(repository_files)
+        for category, hit in ai_repo_level_checks.build_ai_repo_level_findings(
+            signal_categories, ai_provider_labels, model_card_present
+        ):
+            _write_finding(
+                db,
+                scan,
+                category,
+                "AI-REPO-LEVEL",
+                hit,
+                framework="ISO42001",
+                evidence_source_type="repo_aggregate",
+                repository_file=None,
+            )
+
+        scan.ai_status = "ready"
+
+    return scan_id
+
+
+def _write_finding(
+    db,
+    scan,
+    category: str,
+    rule_id: str,
+    hit,
+    *,
+    framework: str | None,
+    evidence_source_type: str,
+    repository_file,
+) -> None:
+    """Shared Finding+Evidence writer. Factored out so the privacy task's
+    per-file rule loop and its repo-level loop write rows identically; the
+    Phase 2 task keeps its own inline version unchanged to avoid churning
+    already-shipped, verified code.
+    """
+    finding = Finding(
+        scan_id=scan.id,
+        framework=framework,
+        category=category,
+        rule_id=rule_id,
+        title=hit.title,
+        status=hit.status,
+        severity=hit.severity,
+        confidence=hit.confidence,
+        summary=hit.summary,
+        reasoning=hit.reasoning,
+        recommendation=hit.recommendation,
+        automated=True,
+        human_review_required=(
+            hit.status == "REQUIRES_HUMAN_REVIEW" or hit.severity == "CRITICAL"
+        ),
+    )
+    db.add(finding)
+    db.flush()  # assigns finding.id without ending the transaction
+
+    db.add(
+        Evidence(
+            scan_id=scan.id,
+            repository_file_id=repository_file.id if repository_file is not None else None,
+            finding_id=finding.id,
+            source_type=evidence_source_type,
+            rule_id=rule_id,
+            file_path=repository_file.relative_path if repository_file is not None else None,
+            line_start=hit.line_start,
+            line_end=hit.line_end,
+            snippet=hit.snippet,
+            description=hit.summary,
+            confidence=hit.confidence,
+            evidence_metadata=hit.evidence_metadata,
+        )
+    )

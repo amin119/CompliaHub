@@ -51,6 +51,22 @@ class Scan(Base):
     # docstring) — extraction/analysis is an explicit, separate stage.
     findings_status: Mapped[str] = mapped_column(String, nullable=False, default="not_started")
     findings_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # A third independent status track, same rationale as `findings_status`
+    # above: the GDPR rule pass (Phase 3) has different idempotent-clear
+    # semantics than the security rule pass (Phase 2) — each only clears
+    # its own framework's Finding rows (see `tasks/scan.py`) — so a bug or
+    # failure specific to one pass must not be conflated with the other's
+    # status, and a rerun of one must never look like it also reran the
+    # other.
+    privacy_status: Mapped[str] = mapped_column(String, nullable=False, default="not_started")
+    privacy_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # A fourth independent status track (Phase 4, ISO 42001): its
+    # idempotent-clear scope (`Finding.framework == "ISO42001"`) differs
+    # from both `findings_status`'s and `privacy_status`'s, the same
+    # "genuinely separate failure domain" reasoning that justified
+    # `privacy_status` as its own track rather than sharing `findings_status`.
+    ai_status: Mapped[str] = mapped_column(String, nullable=False, default="not_started")
+    ai_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now

@@ -168,6 +168,8 @@ export type ScanStatus = {
   detected_frameworks: string[];
   findings_status: string;
   findings_error_message: string | null;
+  privacy_status: string;
+  privacy_error_message: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -244,12 +246,13 @@ export type FindingDetail = Finding & {
 
 export async function getScanFindings(
   scanId: string,
-  filters?: { severity?: string; status?: string; category?: string },
+  filters?: { severity?: string; status?: string; category?: string; framework?: string },
 ): Promise<Finding[]> {
   const params = new URLSearchParams();
   if (filters?.severity) params.set("severity", filters.severity);
   if (filters?.status) params.set("status", filters.status);
   if (filters?.category) params.set("category", filters.category);
+  if (filters?.framework) params.set("framework", filters.framework);
   const query = params.toString() ? `?${params.toString()}` : "";
   const response = await fetch(`${API_URL}/scans/${scanId}/findings${query}`);
   if (!response.ok) throw new Error(await parseErrorDetail(response));

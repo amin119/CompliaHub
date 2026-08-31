@@ -19,6 +19,10 @@ class ScanResponse(BaseModel):
     detected_frameworks: list[str]
     findings_status: str
     findings_error_message: str | None
+    privacy_status: str
+    privacy_error_message: str | None
+    ai_status: str
+    ai_error_message: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -46,6 +50,7 @@ class EvidenceResponse(BaseModel):
     snippet: str | None
     description: str
     confidence: str | None
+    evidence_metadata: dict | None
 
 
 class FindingResponse(BaseModel):

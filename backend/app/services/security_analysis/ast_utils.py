@@ -1,15 +1,87 @@
 """Shared AST helpers for the Python-based rules (`hardcoded_credentials`,
-`cryptography_rules`, `logging_rules`). Repository content is untrusted
-input — a syntax error in a scanned file must skip that file's AST rules,
-never fail the whole scan (the same posture `repo_extraction.py` already
-takes toward malformed zip entries).
+`cryptography_rules`, `logging_rules`, and Phase 3's `privacy_analysis`
+rules, which import these unchanged — the helpers are already framework-
+agnostic). Repository content is untrusted input — a syntax error in a
+scanned file must skip that file's AST rules, never fail the whole scan
+(the same posture `repo_extraction.py` already takes toward malformed zip
+entries).
 """
 
 from __future__ import annotations
 
 import ast
+import re
 
 ParentMap = dict[ast.AST, ast.AST]
+
+# Shared by both frameworks' logging rules (`security_analysis.logging_rules`
+# and `privacy_analysis.logging_pii`): the mechanics of "is this call a
+# logger call" and "which attribute names in this subtree match a regex" are
+# framework-agnostic — only the sensitivity regex passed in is flavored. This
+# lives here rather than being duplicated so a second framework's logging
+# rule reuses the exact same call/attribute-walk logic (see Phase 3's
+# extract-don't-duplicate note).
+_LOGGER_NAME_RE = re.compile(r"^(logger|log|logging)$", re.IGNORECASE)
+_LOG_METHODS = frozenset(
+    {"debug", "info", "warning", "error", "critical", "exception"}
+)
+
+
+def is_logger_call(node: ast.Call) -> str | None:
+    """Returns the log method name (`"info"`, etc.) if `node` calls a
+    logger-shaped object (`logger.info(...)`, `self.logger.error(...)`),
+    else `None`. Moved verbatim out of `logging_rules._is_logger_call` so
+    the privacy-analysis logging rule can reuse it without duplicating the
+    receiver/attribute-walk logic — confirmed safe since
+    `test_security_rules_logging.py` only imports `_detect_python`, not the
+    helper being moved.
+    """
+    if not isinstance(node.func, ast.Attribute) or node.func.attr not in _LOG_METHODS:
+        return None
+    receiver = node.func.value
+    if isinstance(receiver, ast.Name) and _LOGGER_NAME_RE.match(receiver.id):
+        return node.func.attr
+    if isinstance(receiver, ast.Attribute) and _LOGGER_NAME_RE.match(receiver.attr):
+        return node.func.attr
+    return None
+
+
+def attribute_names_matching(node: ast.AST, pattern: re.Pattern[str]) -> list[str]:
+    """Walks `node`'s subtree and returns every `ast.Attribute` attribute
+    name matching `pattern` — e.g. for `user.email`, called with an
+    email-matching regex, returns `["email"]`. The generic mechanic behind
+    both frameworks' "does this logged argument reference a sensitive
+    attribute" check; only the regex differs (security-flavored vs.
+    PII-only).
+    """
+    found: list[str] = []
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Attribute) and pattern.match(sub.attr):
+            found.append(sub.attr)
+    return found
+
+
+def imported_top_level_names(tree: ast.AST) -> list[tuple[str, int]]:
+    """Every imported top-level package name paired with its line number,
+    from both `import x.y` and `from x.y import z` forms (`import x.y` and
+    `from x.y import z` both resolve to `"x"`). Moved out of
+    `privacy_analysis.third_party._imported_top_level_names` (Phase 3) so
+    Phase 4's AI/ML import detection reuses the same mechanic with its own
+    independent curated package list, rather than duplicating this walk a
+    second time — only the *list* differs between the two frameworks, not
+    the mechanic.
+    """
+    results: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top = alias.name.split(".", 1)[0]
+                results.append((top, node.lineno))
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and node.level == 0:
+                top = node.module.split(".", 1)[0]
+                results.append((top, node.lineno))
+    return results
 
 
 def safe_parse(text: str) -> ast.AST | None:
