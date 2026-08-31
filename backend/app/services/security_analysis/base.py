@@ -38,6 +38,17 @@ class RuleHit:
     `snippet` must already be redacted by the rule itself if it could
     contain a raw secret (see `redaction.redact_secret`) — the pipeline
     that turns this into DB rows does not re-check that.
+
+    `category` defaults to `None`, meaning "use the rule's own `category`"
+    — every rule whose hits are all one logical category (the overwhelming
+    majority) never needs to set this. It exists for the rare rule whose
+    hits vary by category at runtime (e.g. `pii_fields.py`'s single
+    AST walk produces both `data_minimisation` and `special_category_data`
+    hits depending on which field matched) — a real bug was caught live
+    where such a rule's special-category hits were silently written with
+    the rule's generic default category instead, because nothing let a hit
+    override it. Same per-hit-overrides-a-rule-level-default shape
+    `severity`/`confidence`/`status` already use.
     """
 
     title: str
@@ -50,6 +61,14 @@ class RuleHit:
     line_start: int | None = None
     line_end: int | None = None
     snippet: str | None = None
+    category: str | None = None
+    # Structured payload for the rare hit that needs to carry more than
+    # prose — currently only Phase 4's AI-system-inventory finding
+    # (spec section 11's JSON shape: models/uses_rag/uses_tools/etc.),
+    # written straight through to `Evidence.evidence_metadata` (a JSONB
+    # column that's existed, unused, since Phase 1). `None` for every
+    # ordinary hit.
+    evidence_metadata: dict | None = None
 
 
 class SecurityRule(Protocol):

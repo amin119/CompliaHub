@@ -37,5 +37,22 @@ celery_app.conf.update(
         "scanner.extract_repository": {"queue": "scanner"},
         "scanner.detect_frameworks": {"queue": "scanner"},
         "scanner.run_security_analyzers": {"queue": "scanner"},
+        # Phase 3's GDPR analyzer — same "scanner" queue as the other three.
+        # NOTE: adding this entry requires restarting BOTH the FastAPI
+        # process and every Celery worker consuming "scanner" — a chain()
+        # callback is dispatched from inside the worker that finished the
+        # prior stage, using that worker's own in-memory routing config, so
+        # a stale worker would silently misroute this stage to the default
+        # "celery" queue (the exact bug Phase 2 hit — see its as-built doc).
+        "scanner.run_privacy_analyzers": {"queue": "scanner"},
+        # Phase 4's AI/ISO 42001 analyzer — same "scanner" queue. NOTE
+        # (restated a third time, since it's been missed once already):
+        # adding this entry requires restarting BOTH the FastAPI process
+        # AND every Celery worker consuming "scanner" — a chain() callback
+        # is dispatched from inside the worker that finished the prior
+        # stage, using that worker's own in-memory routing config, so a
+        # stale worker silently misroutes this stage to the default
+        # "celery" queue (the exact bug Phase 2 hit — see its as-built doc).
+        "scanner.run_ai_analyzers": {"queue": "scanner"},
     },
 )

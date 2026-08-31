@@ -18,6 +18,8 @@ from app.services.hashing import sha256_bytes
 from app.tasks.scan import (
     detect_frameworks_task,
     extract_and_classify_files_task,
+    run_ai_analyzers_task,
+    run_privacy_analyzers_task,
     run_security_analyzers_task,
 )
 
@@ -65,6 +67,8 @@ def upload_scan(file: UploadFile = File(...), db: Session = Depends(get_db)):
         extract_and_classify_files_task.s(str(scan.id)),
         detect_frameworks_task.s(),
         run_security_analyzers_task.s(),
+        run_privacy_analyzers_task.s(),
+        run_ai_analyzers_task.s(),
     ).apply_async()
 
     return scan
@@ -106,6 +110,7 @@ def get_scan_findings(
     severity: str | None = Query(default=None),
     status: str | None = Query(default=None),
     category: str | None = Query(default=None),
+    framework: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     if db.get(Scan, scan_id) is None:
@@ -118,6 +123,8 @@ def get_scan_findings(
         query = query.where(Finding.status == status)
     if category is not None:
         query = query.where(Finding.category == category)
+    if framework is not None:
+        query = query.where(Finding.framework == framework)
     query = query.order_by(Finding.created_at.desc())
 
     return db.scalars(query).all()

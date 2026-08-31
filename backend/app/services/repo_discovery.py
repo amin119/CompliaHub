@@ -101,6 +101,26 @@ _FILENAME_COMPONENT_TYPES = {
     "readme.md": "documentation",
     "readme": "documentation",
     "changelog.md": "documentation",
+    # Privacy-policy docs (added in scanner Phase 3): without these, a
+    # repo's own PRIVACY.md falls through to "unknown", so the GDPR
+    # analyzer's "unless documentary evidence exists" carve-out
+    # (repo_level_checks.privacy_policy_doc_present) could never trigger for
+    # the single most common real case.
+    "privacy.md": "documentation",
+    "privacy-policy.md": "documentation",
+    "privacy_policy.md": "documentation",
+    "data-protection.md": "documentation",
+    # Model-card/AI-governance docs (added in scanner Phase 4): same
+    # rationale as the privacy-doc additions above — without these, a
+    # repo's own MODEL_CARD.md falls through to "unknown", so the AI
+    # analyzer's "unless documentary evidence exists" carve-out
+    # (ai_analysis.repo_level_checks.model_card_doc_present) could never
+    # trigger for the single most common real case.
+    "model_card.md": "documentation",
+    "model-card.md": "documentation",
+    "ai_governance.md": "documentation",
+    "ai-governance.md": "documentation",
+    "model_cards.md": "documentation",
 }
 
 _PATH_SUBSTRING_COMPONENT_TYPES = (
