@@ -166,6 +166,8 @@ export type ScanStatus = {
   total_size_bytes: number | null;
   detected_languages: string[];
   detected_frameworks: string[];
+  findings_status: string;
+  findings_error_message: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -205,6 +207,57 @@ export async function getScanFiles(
 ): Promise<RepositoryFile[]> {
   const query = componentType ? `?component_type=${encodeURIComponent(componentType)}` : "";
   const response = await fetch(`${API_URL}/scans/${scanId}/files${query}`);
+  if (!response.ok) throw new Error(await parseErrorDetail(response));
+  return response.json();
+}
+
+export type Finding = {
+  id: string;
+  framework: string | null;
+  category: string;
+  rule_id: string;
+  title: string;
+  status: string;
+  severity: string;
+  confidence: string;
+  summary: string;
+  recommendation: string | null;
+  automated: boolean;
+  human_review_required: boolean;
+  created_at: string;
+};
+
+export type FindingDetail = Finding & {
+  reasoning: string;
+  evidence: {
+    id: string;
+    source_type: string | null;
+    rule_id: string | null;
+    file_path: string | null;
+    line_start: number | null;
+    line_end: number | null;
+    snippet: string | null;
+    description: string;
+    confidence: string | null;
+  }[];
+};
+
+export async function getScanFindings(
+  scanId: string,
+  filters?: { severity?: string; status?: string; category?: string },
+): Promise<Finding[]> {
+  const params = new URLSearchParams();
+  if (filters?.severity) params.set("severity", filters.severity);
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.category) params.set("category", filters.category);
+  const query = params.toString() ? `?${params.toString()}` : "";
+  const response = await fetch(`${API_URL}/scans/${scanId}/findings${query}`);
+  if (!response.ok) throw new Error(await parseErrorDetail(response));
+  return response.json();
+}
+
+export async function getScanFinding(scanId: string, findingId: string): Promise<FindingDetail> {
+  const response = await fetch(`${API_URL}/scans/${scanId}/findings/${findingId}`);
   if (!response.ok) throw new Error(await parseErrorDetail(response));
   return response.json();
 }

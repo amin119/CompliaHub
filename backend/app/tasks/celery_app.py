@@ -36,5 +36,6 @@ celery_app.conf.update(
         # without a queue-naming migration at that point.
         "scanner.extract_repository": {"queue": "scanner"},
         "scanner.detect_frameworks": {"queue": "scanner"},
+        "scanner.run_security_analyzers": {"queue": "scanner"},
     },
 )

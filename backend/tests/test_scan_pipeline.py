@@ -74,3 +74,44 @@ def test_scan_stage_raises_for_missing_scan():
     with pytest.raises(ValueError, match="not found"):
         with scan_stage(str(uuid.uuid4()), "test_stage", "running_test"):
             pass
+
+
+def test_scan_stage_writes_to_overridden_status_field_on_success():
+    scan = _make_scan()
+
+    with scan_stage(
+        str(scan.id),
+        "test_stage",
+        "analyzing_security",
+        status_field="findings_status",
+        error_field="findings_error_message",
+    ) as (_db, stage_scan):
+        assert stage_scan.findings_status == "analyzing_security"
+        # The default-tracked `status` column must be untouched by the
+        # override — it's a genuinely independent track.
+        assert stage_scan.status == "pending"
+
+    refreshed = _reload(scan.id)
+    assert refreshed.findings_status == "analyzing_security"
+    assert refreshed.status == "pending"
+
+
+def test_scan_stage_writes_to_overridden_error_field_on_failure():
+    scan = _make_scan()
+
+    with pytest.raises(ValueError, match="simulated findings failure"):
+        with scan_stage(
+            str(scan.id),
+            "test_stage",
+            "analyzing_security",
+            status_field="findings_status",
+            error_field="findings_error_message",
+        ) as (_db, _scan):
+            raise ValueError("simulated findings failure")
+
+    refreshed = _reload(scan.id)
+    assert refreshed.findings_status == "failed"
+    assert refreshed.findings_error_message == "simulated findings failure"
+    # The default `status`/`error_message` track must be untouched.
+    assert refreshed.status == "pending"
+    assert refreshed.error_message is None
