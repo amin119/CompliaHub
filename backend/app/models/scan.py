@@ -44,6 +44,13 @@ class Scan(Base):
     total_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     detected_languages: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     detected_frameworks: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # Independent of `status` above: a scan's files are browsable (`status
+    # == "ready"`) well before the heavier security-rule pass has finished,
+    # exactly the same reasoning `Document.graph_status` uses to stay
+    # independent of `Document.status` (see `tasks/pipeline.py`'s
+    # docstring) — extraction/analysis is an explicit, separate stage.
+    findings_status: Mapped[str] = mapped_column(String, nullable=False, default="not_started")
+    findings_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
@@ -56,6 +63,9 @@ class Scan(Base):
         back_populates="scan", cascade="all, delete-orphan"
     )
     evidence: Mapped[list["Evidence"]] = relationship(
+        back_populates="scan", cascade="all, delete-orphan"
+    )
+    findings: Mapped[list["Finding"]] = relationship(
         back_populates="scan", cascade="all, delete-orphan"
     )
 
@@ -124,6 +134,14 @@ class Evidence(Base):
         ForeignKey("repository_files.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # A plain one-to-many from Finding's side (nullable FK on the "many"
+    # side, SET NULL on delete) — the same shape as `repository_file_id`
+    # above, not a join table: nothing in this project's rules produces
+    # one Evidence row shared across multiple distinct Findings, so a
+    # many-to-many association table would be unused structure.
+    finding_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("findings.id", ondelete="SET NULL"), nullable=True
+    )
     # Which kind of analyzer produced this — e.g. "static_pattern",
     # "config_file", "manifest", "ast_analysis", "llm_reasoning". Populated
     # by later phases; Phase 1 defines the column, nothing writes it yet.
@@ -145,3 +163,46 @@ class Evidence(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     scan: Mapped["Scan"] = relationship(back_populates="evidence")
+    finding: Mapped["Finding | None"] = relationship(back_populates="evidence")
+
+
+class Finding(Base):
+    """One security/compliance finding produced by a rule (Phase 2:
+    deterministic security rules only — GDPR/ISO clause mapping and any
+    LLM-based reasoning are later phases). Never a binary pass/fail:
+    `status` is the compliance-scanner spec's own 6-value vocabulary
+    (VERIFIED/PARTIALLY_VERIFIED/NOT_VERIFIED/POTENTIAL_NON_COMPLIANCE/
+    NOT_APPLICABLE/REQUIRES_HUMAN_REVIEW) — Phase 2 rules only ever write
+    POTENTIAL_NON_COMPLIANCE or REQUIRES_HUMAN_REVIEW, since the other
+    four values only become meaningful once a real compliance clause
+    exists to verify against (later phases) or a human/LLM has acted on
+    the finding.
+    """
+
+    __tablename__ = "findings"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    scan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False
+    )
+    # Stays NULL throughout Phase 2 — these are framework-agnostic security
+    # findings; mapping to a specific ISO/GDPR clause starts in a later
+    # phase, once that compliance-knowledge layer exists.
+    framework: Mapped[str | None] = mapped_column(String, nullable=True)
+    category: Mapped[str] = mapped_column(String, nullable=False)
+    rule_id: Mapped[str] = mapped_column(String, nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    severity: Mapped[str] = mapped_column(String, nullable=False)
+    confidence: Mapped[str] = mapped_column(String, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    reasoning: Mapped[str] = mapped_column(Text, nullable=False)
+    # A static, per-rule one-liner — not generated remediation (that's a
+    # later phase's `RemediationAgent`).
+    recommendation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    automated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    human_review_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    scan: Mapped["Scan"] = relationship(back_populates="findings")
+    evidence: Mapped[list["Evidence"]] = relationship(back_populates="finding")

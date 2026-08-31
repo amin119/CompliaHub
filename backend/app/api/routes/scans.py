@@ -6,11 +6,20 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.models.scan import RepositoryFile, Scan
-from app.schemas.scan import RepositoryFileResponse, ScanResponse
+from app.models.scan import Finding, RepositoryFile, Scan
+from app.schemas.scan import (
+    FindingDetailResponse,
+    FindingResponse,
+    RepositoryFileResponse,
+    ScanResponse,
+)
 from app.services import scan_storage, storage
 from app.services.hashing import sha256_bytes
-from app.tasks.scan import detect_frameworks_task, extract_and_classify_files_task
+from app.tasks.scan import (
+    detect_frameworks_task,
+    extract_and_classify_files_task,
+    run_security_analyzers_task,
+)
 
 router = APIRouter(prefix="/scans", tags=["scans"])
 
@@ -55,6 +64,7 @@ def upload_scan(file: UploadFile = File(...), db: Session = Depends(get_db)):
     chain(
         extract_and_classify_files_task.s(str(scan.id)),
         detect_frameworks_task.s(),
+        run_security_analyzers_task.s(),
     ).apply_async()
 
     return scan
@@ -88,3 +98,36 @@ def get_scan_files(
     query = query.order_by(RepositoryFile.relative_path)
 
     return db.scalars(query).all()
+
+
+@router.get("/{scan_id}/findings", response_model=list[FindingResponse])
+def get_scan_findings(
+    scan_id: uuid.UUID,
+    severity: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    if db.get(Scan, scan_id) is None:
+        raise HTTPException(status_code=404, detail="scan not found")
+
+    query = select(Finding).where(Finding.scan_id == scan_id)
+    if severity is not None:
+        query = query.where(Finding.severity == severity)
+    if status is not None:
+        query = query.where(Finding.status == status)
+    if category is not None:
+        query = query.where(Finding.category == category)
+    query = query.order_by(Finding.created_at.desc())
+
+    return db.scalars(query).all()
+
+
+@router.get("/{scan_id}/findings/{finding_id}", response_model=FindingDetailResponse)
+def get_scan_finding(scan_id: uuid.UUID, finding_id: uuid.UUID, db: Session = Depends(get_db)):
+    finding = db.scalar(
+        select(Finding).where(Finding.id == finding_id, Finding.scan_id == scan_id)
+    )
+    if finding is None:
+        raise HTTPException(status_code=404, detail="finding not found")
+    return finding
