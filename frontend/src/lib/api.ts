@@ -170,6 +170,10 @@ export type ScanStatus = {
   findings_error_message: string | null;
   privacy_status: string;
   privacy_error_message: string | null;
+  ai_status: string;
+  ai_error_message: string | null;
+  iso27001_status: string;
+  iso27001_error_message: string | null;
   created_at: string;
   updated_at: string;
 };

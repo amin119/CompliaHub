@@ -54,5 +54,14 @@ celery_app.conf.update(
         # stale worker silently misroutes this stage to the default
         # "celery" queue (the exact bug Phase 2 hit — see its as-built doc).
         "scanner.run_ai_analyzers": {"queue": "scanner"},
+        # Phase 5's ISO 27001 mapping — same "scanner" queue. NOTE (restated
+        # a fourth time): adding this entry requires restarting BOTH the
+        # FastAPI process AND every Celery worker consuming "scanner" — a
+        # chain() callback is dispatched from inside the worker that
+        # finished the prior stage, using that worker's own in-memory
+        # routing config, so a stale worker silently misroutes this stage
+        # to the default "celery" queue (the exact bug Phase 2 hit — see
+        # its as-built doc).
+        "scanner.run_iso27001_analyzers": {"queue": "scanner"},
     },
 )

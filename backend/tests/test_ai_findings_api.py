@@ -104,7 +104,11 @@ def test_three_way_framework_partition():
 
     all_findings = client.get(f"/scans/{scan_id}/findings").json()
     frameworks = {f["framework"] for f in all_findings}
-    assert frameworks == {None, "GDPR", "ISO42001"}
+    # Phase 5 added a sixth chained stage that always writes ISO27001
+    # findings (one per catalogued control) on top of these three —
+    # asserted in detail by test_iso27001_findings_api.py's own
+    # four-way partition test.
+    assert frameworks == {None, "GDPR", "ISO42001", "ISO27001"}
 
 
 def test_ai_findings_include_inventory_and_expected_categories():

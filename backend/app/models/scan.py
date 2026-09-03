@@ -67,6 +67,11 @@ class Scan(Base):
     # `privacy_status` as its own track rather than sharing `findings_status`.
     ai_status: Mapped[str] = mapped_column(String, nullable=False, default="not_started")
     ai_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # A fifth independent status track (Phase 5, ISO 27001): its
+    # idempotent-clear scope (`Finding.framework == "ISO27001"`) is
+    # distinct from all four prior scopes — same test, same conclusion.
+    iso27001_status: Mapped[str] = mapped_column(String, nullable=False, default="not_started")
+    iso27001_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now

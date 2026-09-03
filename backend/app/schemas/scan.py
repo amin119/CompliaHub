@@ -23,6 +23,8 @@ class ScanResponse(BaseModel):
     privacy_error_message: str | None
     ai_status: str
     ai_error_message: str | None
+    iso27001_status: str
+    iso27001_error_message: str | None
     created_at: datetime
     updated_at: datetime
 

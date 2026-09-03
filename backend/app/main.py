@@ -14,7 +14,15 @@ from contextlib import asynccontextmanager  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
-from app.api.routes import communities, documents, extraction, health, query, scans  # noqa: E402
+from app.api.routes import (  # noqa: E402
+    communities,
+    compliance,
+    documents,
+    extraction,
+    health,
+    query,
+    scans,
+)
 from app.core.checkpointer import close_checkpointer, open_checkpointer  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 
@@ -50,3 +58,4 @@ app.include_router(query.router)
 app.include_router(extraction.router)
 app.include_router(communities.router)
 app.include_router(scans.router)
+app.include_router(compliance.router)
