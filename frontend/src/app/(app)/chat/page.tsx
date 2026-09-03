@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { streamQuestion, type Citation, type GraphEvidence, type StreamEvent } from "@/lib/api";
 import CitationChip from "@/components/CitationChip";
 import GraphView from "@/components/GraphView";
+import Logo from "@/components/Logo";
 
 type Message = {
   role: "user" | "assistant";
@@ -47,6 +48,58 @@ function ThreadPulse() {
   );
 }
 
+/**
+ * Only visible on hover (`group-hover/message`) — a low-friction way to
+ * grab a finished answer without adding permanent chrome to every bubble.
+ * Not shown while a message is still streaming/status-only.
+ */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard access can fail (permissions, insecure context) — the
+      // button just silently stays in its un-copied state, no error UI
+      // for something this low-stakes.
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      aria-label="Copy answer"
+      className="absolute -top-2.5 -right-2.5 flex h-6 w-6 items-center justify-center rounded-full border border-surface-border bg-surface text-muted opacity-0 shadow-sm transition-opacity group-hover/message:opacity-100 hover:text-accent"
+    >
+      {copied ? (
+        <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
+          <path
+            d="M3.5 8.5 6.5 11.5 12.5 4.5"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 16 16" fill="none" className="h-3 w-3">
+          <rect x="5.5" y="5.5" width="7" height="7" rx="1.3" stroke="currentColor" strokeWidth="1.4" />
+          <path
+            d="M3.5 10V4.3A0.8 0.8 0 0 1 4.3 3.5H10"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+          />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -54,8 +107,17 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Only auto-scroll when the user is already near the bottom — otherwise
+  // a long answer streaming in would keep yanking them back down while
+  // they're scrolled up reading an earlier message or a citation.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    const container = scrollRef.current;
+    if (!container) return;
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom < 150) {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    }
   }, [messages]);
 
   async function submitQuestion(question: string) {
@@ -157,25 +219,44 @@ export default function ChatPage() {
 
         <main
           ref={scrollRef}
-          className="flex flex-1 flex-col gap-5 overflow-y-auto rounded-3xl border border-surface-border bg-surface p-5 sm:p-6"
+          className="themed-scroll flex flex-1 flex-col gap-5 overflow-y-auto rounded-3xl border border-surface-border bg-surface p-5 sm:p-6"
         >
           {messages.length === 0 && (
-            <div className="m-auto flex max-w-sm flex-col items-center gap-6 text-center">
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+              className="m-auto flex max-w-sm flex-col items-center gap-6 text-center"
+            >
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent-soft">
+                <Logo className="h-6 w-6 text-accent" />
+              </div>
               <p className="text-sm text-zinc-400 dark:text-zinc-600">
                 Ask about cross-standard mapping, gap analysis, or a specific clause.
               </p>
-              <div className="flex w-full flex-col">
+              <motion.div
+                className="flex w-full flex-col gap-2"
+                initial="hidden"
+                animate="show"
+                variants={{ show: { transition: { staggerChildren: 0.06 } } }}
+              >
                 {SUGGESTIONS.map((suggestion) => (
-                  <button
+                  <motion.button
                     key={suggestion}
+                    variants={{
+                      hidden: { opacity: 0, y: 6 },
+                      show: { opacity: 1, y: 0 },
+                    }}
+                    whileHover={{ y: -1 }}
+                    whileTap={{ scale: 0.98 }}
                     onClick={() => void submitQuestion(suggestion)}
-                    className="border-b border-surface-border py-2.5 text-left text-xs text-zinc-500 transition-colors last:border-0 hover:text-accent dark:text-zinc-400"
+                    className="rounded-2xl border border-surface-border bg-background px-3.5 py-2.5 text-left text-xs text-zinc-500 transition-colors hover:border-accent/40 hover:text-accent dark:text-zinc-400"
                   >
                     {suggestion}
-                  </button>
+                  </motion.button>
                 ))}
-              </div>
-            </div>
+              </motion.div>
+            </motion.div>
           )}
           <AnimatePresence initial={false}>
             {messages.map((message, index) => (
@@ -186,14 +267,17 @@ export default function ChatPage() {
                 transition={{ duration: 0.3, ease: "easeOut" }}
                 className={
                   message.role === "user"
-                    ? "ml-auto max-w-[80%] rounded-3xl rounded-br-md bg-cta px-4 py-2.5 text-sm text-accent-foreground"
-                    : `mr-auto max-w-[85%] rounded-3xl rounded-bl-md border px-4 py-2.5 text-sm ${
+                    ? "ml-auto max-w-[80%] rounded-3xl rounded-br-md bg-cta px-4 py-2.5 text-sm text-accent-foreground shadow-sm"
+                    : `group/message relative mr-auto max-w-[85%] rounded-3xl rounded-bl-md border px-4 py-2.5 text-sm shadow-sm ${
                         message.isError
                           ? "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
                           : "border-surface-border bg-background text-foreground"
                       }`
                 }
               >
+                {message.role === "assistant" && message.content && !message.status && (
+                  <CopyButton text={message.content} />
+                )}
                 {message.status ? (
                   <div className="flex items-center gap-3 py-0.5 text-zinc-500 dark:text-zinc-400">
                     <ThreadPulse />
@@ -231,11 +315,12 @@ export default function ChatPage() {
             placeholder="Ask about a control, clause, or gap analysis…"
             className="flex-1 rounded-full border border-surface-border bg-surface px-4 py-2.5 text-sm text-foreground placeholder:text-zinc-400 transition-shadow focus:border-accent/50 focus:ring-2 focus:ring-accent-soft focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
           />
-          <button
+          <motion.button
             type="submit"
             disabled={loading || !input.trim()}
             aria-label="Send"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-cta text-accent-foreground transition-opacity enabled:hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            whileTap={{ scale: 0.92 }}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-cta text-accent-foreground shadow-sm transition-opacity enabled:hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
               <path
@@ -246,7 +331,7 @@ export default function ChatPage() {
                 strokeLinejoin="round"
               />
             </svg>
-          </button>
+          </motion.button>
         </form>
       </div>
     </div>

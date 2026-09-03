@@ -3,6 +3,8 @@ from app.services import repo_discovery, scan_storage, storage
 from app.services.ai_analysis import ai_imports
 from app.services.ai_analysis import repo_level_checks as ai_repo_level_checks
 from app.services.ai_analysis.registry import AI_RULES
+from app.services.iso27001.catalog import CATALOG
+from app.services.iso27001.mapping import CONTROL_TO_CATEGORIES, decide_control_status
 from app.services.privacy_analysis import repo_level_checks
 from app.services.privacy_analysis.registry import PRIVACY_RULES
 from app.services.repo_extraction import iter_zip_entries
@@ -475,6 +477,154 @@ def run_ai_analyzers_task(scan_id: str) -> str:
             )
 
         scan.ai_status = "ready"
+
+    return scan_id
+
+
+@celery_app.task(name="scanner.run_iso27001_analyzers")
+def run_iso27001_analyzers_task(scan_id: str) -> str:
+    """Stage 6: map every existing Finding (Phases 2-4) onto ISO/IEC
+    27001:2022 Annex A controls via the hand-authored category mapping,
+    writing one Finding (`framework="ISO27001"`) per catalogued control.
+
+    Tracked on `Scan.iso27001_status`/`Scan.iso27001_error_message` — a
+    fifth independent status track, same "genuinely separate failure
+    domain" reasoning as every prior phase (its idempotent-clear scope,
+    `Finding.framework == "ISO27001"`, is distinct from all four prior
+    scopes).
+
+    Unlike every prior stage, this one reads no repository files at all —
+    only Finding rows Phases 2-4 already wrote. And unlike every prior
+    stage's Finding:Evidence being roughly 1:1, one ISO27001 Finding here
+    aggregates potentially many mapped findings' worth of evidence.
+    `Evidence.finding_id` is a single nullable FK, so those rows are
+    *copied* (new Evidence rows, `source_type="control_mapping"`), not
+    re-pointed — forced, not stylistic: every prior task clear-then-
+    rebuilds its own findings with new UUIDs on every rerun, so
+    referencing the original rows by FK would let a routine upstream
+    rerun silently orphan this stage's evidence via the existing
+    `ondelete="SET NULL"`. A control with zero mapped findings still gets
+    one synthetic `repo_aggregate` Evidence row, matching the repo-level-
+    finding pattern Phase 3/4 already use.
+    """
+    with scan_stage(
+        scan_id,
+        "run_iso27001_analyzers",
+        "mapping_iso27001",
+        status_field="iso27001_status",
+        error_field="iso27001_error_message",
+    ) as (db, scan):
+        # Idempotency, SCOPED BY FRAMEWORK (same pattern as every prior
+        # phase): this clear must only touch `framework == "ISO27001"` rows.
+        iso27001_finding_ids = (
+            db.query(Finding.id)
+            .filter(Finding.scan_id == scan.id, Finding.framework == "ISO27001")
+            .scalar_subquery()
+        )
+        db.query(Evidence).filter(
+            Evidence.scan_id == scan.id,
+            Evidence.finding_id.in_(iso27001_finding_ids),
+        ).delete(synchronize_session=False)
+        db.query(Finding).filter(
+            Finding.scan_id == scan.id, Finding.framework == "ISO27001"
+        ).delete(synchronize_session=False)
+
+        for control in CATALOG:
+            category_pairs = CONTROL_TO_CATEGORIES.get(control.control_id, [])
+
+            mapped_findings: dict[str, Finding] = {}
+            for framework, category in category_pairs:
+                query = db.query(Finding).filter(
+                    Finding.scan_id == scan.id, Finding.category == category
+                )
+                query = (
+                    query.filter(Finding.framework.is_(None))
+                    if framework is None
+                    else query.filter(Finding.framework == framework)
+                )
+                for source_finding in query.all():
+                    mapped_findings[str(source_finding.id)] = source_finding
+
+            assessment = decide_control_status(control.automatable, list(mapped_findings.values()))
+
+            finding = Finding(
+                scan_id=scan.id,
+                framework="ISO27001",
+                category=control.theme.lower(),
+                rule_id=control.control_id,
+                title=f"{control.control_id} {control.title}",
+                status=assessment.status,
+                severity=assessment.severity,
+                confidence="medium" if mapped_findings else "low",
+                summary=f"{control.title}. {assessment.reasoning} {control.source_note}",
+                reasoning=assessment.reasoning,
+                recommendation=(
+                    "Review the mapped findings below and confirm this control's status "
+                    "with a qualified assessor."
+                    if mapped_findings
+                    else "Confirm this control's status directly; no related findings were "
+                    "detected by earlier scan stages."
+                ),
+                automated=control.automatable,
+                human_review_required=(
+                    assessment.status == "REQUIRES_HUMAN_REVIEW"
+                    or assessment.severity == "CRITICAL"
+                ),
+            )
+            db.add(finding)
+            db.flush()  # assigns finding.id without ending the transaction
+
+            if mapped_findings:
+                for source_finding in mapped_findings.values():
+                    source_evidence_rows = (
+                        db.query(Evidence)
+                        .filter(Evidence.finding_id == source_finding.id)
+                        .all()
+                    )
+                    for source_evidence in source_evidence_rows:
+                        db.add(
+                            Evidence(
+                                scan_id=scan.id,
+                                repository_file_id=source_evidence.repository_file_id,
+                                finding_id=finding.id,
+                                source_type="control_mapping",
+                                rule_id=source_evidence.rule_id,
+                                file_path=source_evidence.file_path,
+                                line_start=source_evidence.line_start,
+                                line_end=source_evidence.line_end,
+                                snippet=source_evidence.snippet,
+                                description=source_evidence.description,
+                                confidence=source_evidence.confidence,
+                                evidence_metadata={
+                                    "source_finding_id": str(source_finding.id),
+                                    "source_framework": source_finding.framework,
+                                    "source_category": source_finding.category,
+                                    "catalog_source_note": control.source_note,
+                                },
+                            )
+                        )
+            else:
+                db.add(
+                    Evidence(
+                        scan_id=scan.id,
+                        repository_file_id=None,
+                        finding_id=finding.id,
+                        source_type="repo_aggregate",
+                        rule_id=control.control_id,
+                        file_path=None,
+                        line_start=None,
+                        line_end=None,
+                        snippet=None,
+                        description=(
+                            f"No findings from earlier scan stages were mapped to "
+                            f"{control.control_id}."
+                        ),
+                        confidence="low",
+                        evidence_metadata={"catalog_source_note": control.source_note},
+                    )
+                )
+
+        scan.iso27001_status = "ready"
 
     return scan_id
 

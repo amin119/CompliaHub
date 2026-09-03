@@ -1,21 +1,44 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { AnimatePresence, motion } from "motion/react";
 import {
   getScan,
   getScanFiles,
+  getScanFinding,
   getScanFindings,
   type Finding,
+  type FindingDetail,
   type RepositoryFile,
   type ScanStatus,
 } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
 import SeverityBadge from "@/components/SeverityBadge";
+import ComplianceDisclaimerBanner from "@/components/ComplianceDisclaimerBanner";
+import PipelineProgress, { type PipelineStage } from "@/components/PipelineProgress";
+import Skeleton from "@/components/Skeleton";
 
 const TERMINAL_STATUSES = ["ready", "failed"];
 const POLL_INTERVAL_MS = 3000;
 const SEVERITY_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFORMATIONAL"];
+const SEVERITY_BORDER: Record<string, string> = {
+  CRITICAL: "border-l-red-500",
+  HIGH: "border-l-orange-500",
+  MEDIUM: "border-l-amber-500",
+  LOW: "border-l-surface-border",
+  INFORMATIONAL: "border-l-surface-border",
+};
+
+function buildPipelineStages(scan: ScanStatus): PipelineStage[] {
+  return [
+    { key: "extract", label: "Extract", status: scan.status },
+    { key: "security", label: "Security", status: scan.findings_status },
+    { key: "gdpr", label: "GDPR", status: scan.privacy_status },
+    { key: "ai", label: "AI / ISO 42001", status: scan.ai_status },
+    { key: "iso27001", label: "ISO 27001", status: scan.iso27001_status },
+  ];
+}
 
 const COMPONENT_TYPE_LABELS: Record<string, string> = {
   application_code: "Application code",
@@ -39,7 +62,18 @@ export default function ScanDetailPage() {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [frameworkFilter, setFrameworkFilter] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"files" | "findings">("files");
+  const [expandedFindingId, setExpandedFindingId] = useState<string | null>(null);
+  const [findingDetails, setFindingDetails] = useState<Record<string, FindingDetail>>({});
   const [error, setError] = useState<string | null>(null);
+
+  function toggleFinding(findingId: string) {
+    setExpandedFindingId((current) => (current === findingId ? null : findingId));
+    if (!findingDetails[findingId]) {
+      getScanFinding(scanId, findingId)
+        .then((detail) => setFindingDetails((prev) => ({ ...prev, [findingId]: detail })))
+        .catch(() => {});
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -54,13 +88,17 @@ export default function ScanDetailPage() {
   // Poll until ALL independent status tracks reach a terminal value — a
   // scan's files can be browsable (`status: "ready"`) well before the
   // security-rule pass (`findings_status`), which itself finishes before
-  // the GDPR pass (`privacy_status`).
+  // the GDPR pass (`privacy_status`), the AI/ISO 42001 pass (`ai_status`),
+  // and the ISO 27001 mapping pass (`iso27001_status`), which runs last
+  // since it maps the other three passes' findings onto controls.
   useEffect(() => {
     if (!scan) return;
     const scanDone = TERMINAL_STATUSES.includes(scan.status);
     const findingsDone = TERMINAL_STATUSES.includes(scan.findings_status);
     const privacyDone = TERMINAL_STATUSES.includes(scan.privacy_status);
-    if (scanDone && findingsDone && privacyDone) return;
+    const aiDone = TERMINAL_STATUSES.includes(scan.ai_status);
+    const iso27001Done = TERMINAL_STATUSES.includes(scan.iso27001_status);
+    if (scanDone && findingsDone && privacyDone && aiDone && iso27001Done) return;
 
     const timeoutId = setTimeout(() => {
       getScan(scanId).then(setScan).catch(() => {});
@@ -75,12 +113,20 @@ export default function ScanDetailPage() {
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load files."));
   }, [scan, scanId, filterType]);
 
-  // Re-fetch findings whenever either rule pass reaches "ready": the GDPR
-  // (`privacy_status`) findings land after the security (`findings_status`)
-  // ones, and a single unfiltered fetch returns both frameworks' rows.
+  // Re-fetch findings whenever any rule pass reaches "ready": the GDPR
+  // (`privacy_status`), AI/ISO 42001 (`ai_status`), and ISO 27001
+  // (`iso27001_status`) findings each land after the security
+  // (`findings_status`) ones, and a single unfiltered fetch returns every
+  // framework's rows.
   useEffect(() => {
     if (!scan) return;
-    if (scan.findings_status !== "ready" && scan.privacy_status !== "ready") return;
+    const anyReady = [
+      scan.findings_status,
+      scan.privacy_status,
+      scan.ai_status,
+      scan.iso27001_status,
+    ].includes("ready");
+    if (!anyReady) return;
     getScanFindings(scanId)
       .then(setFindings)
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load findings."));
@@ -89,15 +135,37 @@ export default function ScanDetailPage() {
   if (error) {
     return (
       <div className="flex flex-1 items-center justify-center bg-background p-6">
-        <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex flex-col items-center gap-2 text-center"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400">
+            <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4">
+              <path
+                d="M8 5v3.5M8 11h.01"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+              <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4" />
+            </svg>
+          </div>
+          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        </motion.div>
       </div>
     );
   }
 
   if (!scan) {
     return (
-      <div className="flex flex-1 items-center justify-center bg-background p-6">
-        <p className="text-sm text-muted">Loading…</p>
+      <div className="flex flex-1 flex-col items-center bg-background">
+        <div className="flex w-full max-w-3xl flex-1 flex-col px-4 py-6 sm:py-8">
+          <Skeleton className="mb-6 h-8 w-64" />
+          <Skeleton className="mb-6 h-28" />
+          <Skeleton className="mb-4 h-9 w-48" />
+          <Skeleton className="h-64" />
+        </div>
       </div>
     );
   }
@@ -128,19 +196,20 @@ export default function ScanDetailPage() {
             <h1 className="font-display text-2xl font-normal tracking-tight text-foreground">
               {scan.original_filename}
             </h1>
-            <StatusBadge status={scan.status} />
-            {scan.status === "ready" && scan.findings_status !== "ready" && (
-              <StatusBadge status={scan.findings_status} />
-            )}
-            {scan.status === "ready" &&
-              scan.findings_status === "ready" &&
-              scan.privacy_status !== "ready" && <StatusBadge status={scan.privacy_status} />}
+            <StatusBadge
+              status={
+                [scan.status, scan.findings_status, scan.privacy_status, scan.ai_status, scan.iso27001_status].includes(
+                  "failed",
+                )
+                  ? "failed"
+                  : [scan.status, scan.findings_status, scan.privacy_status, scan.ai_status, scan.iso27001_status].every(
+                        (s) => s === "ready",
+                      )
+                    ? "ready"
+                    : "processing"
+              }
+            />
           </div>
-          {scan.status !== "ready" && scan.status !== "failed" && (
-            <p className="mt-1 text-sm text-muted">
-              Extracting and classifying files — this updates automatically.
-            </p>
-          )}
           {scan.status === "failed" && scan.error_message && (
             <p className="mt-1 text-sm text-red-600 dark:text-red-400">{scan.error_message}</p>
           )}
@@ -154,7 +223,19 @@ export default function ScanDetailPage() {
               GDPR analysis failed: {scan.privacy_error_message}
             </p>
           )}
+          {scan.ai_status === "failed" && scan.ai_error_message && (
+            <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+              AI/ISO 42001 analysis failed: {scan.ai_error_message}
+            </p>
+          )}
+          {scan.iso27001_status === "failed" && scan.iso27001_error_message && (
+            <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+              ISO 27001 mapping failed: {scan.iso27001_error_message}
+            </p>
+          )}
         </header>
+
+        <PipelineProgress stages={buildPipelineStages(scan)} />
 
         {scan.status === "ready" && (
           <>
@@ -210,28 +291,30 @@ export default function ScanDetailPage() {
             </section>
 
             <div className="mb-4 flex gap-1 border-b border-surface-border">
-              <button
-                type="button"
-                onClick={() => setActiveTab("files")}
-                className={`px-3 py-2 text-sm font-medium transition-colors ${
-                  activeTab === "files"
-                    ? "border-b-2 border-accent text-accent"
-                    : "text-muted hover:text-foreground"
-                }`}
-              >
-                Files
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("findings")}
-                className={`px-3 py-2 text-sm font-medium transition-colors ${
-                  activeTab === "findings"
-                    ? "border-b-2 border-accent text-accent"
-                    : "text-muted hover:text-foreground"
-                }`}
-              >
-                Findings {findings.length > 0 && `(${findings.length})`}
-              </button>
+              {(
+                [
+                  ["files", "Files"],
+                  ["findings", `Findings${findings.length > 0 ? ` (${findings.length})` : ""}`],
+                ] as const
+              ).map(([tab, label]) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setActiveTab(tab)}
+                  className={`relative px-3 py-2 text-sm font-medium transition-colors ${
+                    activeTab === tab ? "text-accent" : "text-muted hover:text-foreground"
+                  }`}
+                >
+                  {label}
+                  {activeTab === tab && (
+                    <motion.span
+                      layoutId="scan-tab-underline"
+                      className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-accent"
+                      transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                    />
+                  )}
+                </button>
+              ))}
             </div>
 
             {activeTab === "files" && (
@@ -264,7 +347,7 @@ export default function ScanDetailPage() {
                   ))}
                 </div>
 
-                <div className="overflow-hidden rounded-2xl border border-surface-border">
+                <div className="themed-scroll overflow-x-auto rounded-2xl border border-surface-border">
                   <table className="w-full text-left text-sm">
                     <thead className="bg-surface text-xs text-muted">
                       <tr>
@@ -275,7 +358,10 @@ export default function ScanDetailPage() {
                     </thead>
                     <tbody>
                       {files.map((file) => (
-                        <tr key={file.id} className="border-t border-surface-border">
+                        <tr
+                          key={file.id}
+                          className="border-t border-surface-border transition-colors hover:bg-surface"
+                        >
                           <td className="truncate px-3 py-2 font-mono text-xs text-foreground">
                             {file.relative_path}
                           </td>
@@ -330,7 +416,9 @@ export default function ScanDetailPage() {
                   </div>
                 )}
 
-                <div className="overflow-hidden rounded-2xl border border-surface-border">
+                {frameworkFilter === "ISO27001" && <ComplianceDisclaimerBanner />}
+
+                <div className="themed-scroll overflow-x-auto rounded-2xl border border-surface-border">
                   {scan.findings_status !== "ready" ? (
                     <p className="px-3 py-4 text-center text-xs text-muted">
                       Security analysis {scan.findings_status === "failed" ? "failed" : "still running"}…
@@ -347,24 +435,138 @@ export default function ScanDetailPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {visibleFindings.map((finding) => (
-                          <tr key={finding.id} className="border-t border-surface-border align-top">
-                            <td className="px-3 py-2">
-                              <SeverityBadge severity={finding.severity} />
-                            </td>
-                            <td className="px-3 py-2 text-xs text-foreground">
-                              <p className="font-medium">{finding.title}</p>
-                              <p className="mt-0.5 text-muted">{finding.summary}</p>
-                            </td>
-                            <td className="px-3 py-2">
-                              <span className="rounded-full bg-surface-blue px-2.5 py-0.5 text-xs text-foreground">
-                                {finding.framework ?? "General"}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 text-xs text-muted">{finding.category}</td>
-                            <td className="px-3 py-2 text-xs text-muted">{finding.confidence}</td>
-                          </tr>
-                        ))}
+                        {visibleFindings.map((finding) => {
+                          const expanded = expandedFindingId === finding.id;
+                          const detail = findingDetails[finding.id];
+                          return (
+                            <Fragment key={finding.id}>
+                              <tr
+                                onClick={() => toggleFinding(finding.id)}
+                                aria-expanded={expanded}
+                                className={`cursor-pointer border-t border-l-2 border-surface-border align-top transition-colors hover:bg-surface ${
+                                  SEVERITY_BORDER[finding.severity] ?? "border-l-surface-border"
+                                } ${expanded ? "bg-surface" : ""}`}
+                              >
+                                <td className="px-3 py-2">
+                                  <SeverityBadge severity={finding.severity} />
+                                </td>
+                                <td className="px-3 py-2 text-xs text-foreground">
+                                  <div className="flex items-start gap-1.5">
+                                    <motion.svg
+                                      viewBox="0 0 16 16"
+                                      fill="none"
+                                      className="mt-0.5 h-3 w-3 shrink-0 text-muted"
+                                      animate={{ rotate: expanded ? 90 : 0 }}
+                                      transition={{ duration: 0.15 }}
+                                    >
+                                      <path
+                                        d="M5 3.5 10.5 8 5 12.5"
+                                        stroke="currentColor"
+                                        strokeWidth="1.6"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      />
+                                    </motion.svg>
+                                    <div>
+                                      <p className="font-medium">{finding.title}</p>
+                                      <p className="mt-0.5 text-muted">{finding.summary}</p>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <span className="rounded-full bg-surface-blue px-2.5 py-0.5 text-xs text-foreground">
+                                    {finding.framework ?? "General"}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-xs text-muted">{finding.category}</td>
+                                <td className="px-3 py-2 text-xs text-muted">{finding.confidence}</td>
+                              </tr>
+                              <tr>
+                                <td colSpan={5} className="p-0">
+                                  <AnimatePresence initial={false}>
+                                    {expanded && (
+                                      <motion.div
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: "auto", opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        transition={{ duration: 0.2, ease: "easeOut" }}
+                                        className="overflow-hidden"
+                                      >
+                                        <div className="border-t border-surface-border bg-background px-4 py-3 text-xs">
+                                          {!detail ? (
+                                            <p className="text-muted">Loading detail…</p>
+                                          ) : (
+                                            <div className="flex flex-col gap-3">
+                                              <div>
+                                                <p className="mb-1 font-medium text-muted">Reasoning</p>
+                                                <p className="text-foreground">{detail.reasoning}</p>
+                                              </div>
+                                              {detail.recommendation && (
+                                                <div>
+                                                  <p className="mb-1 font-medium text-muted">
+                                                    Recommendation
+                                                  </p>
+                                                  <p className="text-foreground">
+                                                    {detail.recommendation}
+                                                  </p>
+                                                </div>
+                                              )}
+                                              {detail.evidence.length > 0 && (
+                                                <div>
+                                                  <p className="mb-1.5 font-medium text-muted">
+                                                    Evidence ({detail.evidence.length})
+                                                  </p>
+                                                  <div className="flex flex-col gap-2">
+                                                    {detail.evidence.map((evidence) => (
+                                                      <div
+                                                        key={evidence.id}
+                                                        className="rounded-xl border border-surface-border bg-surface p-2.5"
+                                                      >
+                                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-muted">
+                                                          {evidence.file_path && (
+                                                            <span className="text-foreground">
+                                                              {evidence.file_path}
+                                                              {evidence.line_start &&
+                                                                `:${evidence.line_start}${
+                                                                  evidence.line_end &&
+                                                                  evidence.line_end !== evidence.line_start
+                                                                    ? `-${evidence.line_end}`
+                                                                    : ""
+                                                                }`}
+                                                            </span>
+                                                          )}
+                                                          {evidence.source_type && (
+                                                            <span className="rounded-full bg-accent-soft px-1.5 py-0 text-accent">
+                                                              {evidence.source_type}
+                                                            </span>
+                                                          )}
+                                                        </div>
+                                                        {evidence.snippet && (
+                                                          <pre className="themed-scroll mt-1.5 overflow-x-auto rounded-lg bg-background p-2 font-mono text-[11px] text-foreground">
+                                                            {evidence.snippet}
+                                                          </pre>
+                                                        )}
+                                                        {!evidence.snippet && evidence.description && (
+                                                          <p className="mt-1 text-foreground">
+                                                            {evidence.description}
+                                                          </p>
+                                                        )}
+                                                      </div>
+                                                    ))}
+                                                  </div>
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </motion.div>
+                                    )}
+                                  </AnimatePresence>
+                                </td>
+                              </tr>
+                            </Fragment>
+                          );
+                        })}
                         {visibleFindings.length === 0 && (
                           <tr>
                             <td colSpan={5} className="px-3 py-4 text-center text-xs text-muted">

@@ -1,13 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { uploadScan, getScan, listScans, type ScanStatus } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
+import UploadDropzone from "@/components/UploadDropzone";
+import Skeleton from "@/components/Skeleton";
 
 const TERMINAL_STATUSES = ["ready", "failed"];
 const POLL_INTERVAL_MS = 3000;
+
+const listVariants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.05 } },
+};
 
 function formatSize(bytes: number | null): string {
   if (bytes === null) return "";
@@ -16,12 +23,31 @@ function formatSize(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function RepoIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className}>
+      <path
+        d="M6 3.5h9l3 3V19a1.5 1.5 0 0 1-1.5 1.5h-10.5A1.5 1.5 0 0 1 4.5 19V5A1.5 1.5 0 0 1 6 3.5Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.5 9 8 10.5 9.5 12M14.5 9 16 10.5 14.5 12M12.5 8.5l-1 5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export default function ScannerPage() {
   const [scans, setScans] = useState<ScanStatus[]>([]);
+  const [scansLoaded, setScansLoaded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [dragActive, setDragActive] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Unlike /documents, `GET /scans` really exists — hydrate scan history
   // across sessions instead of only tracking what this tab uploaded.
@@ -31,7 +57,8 @@ export default function ScannerPage() {
       .catch(() => {
         // A failed initial load just means an empty list — the upload
         // flow below still works standalone.
-      });
+      })
+      .finally(() => setScansLoaded(true));
   }, []);
 
   async function handleFile(file: File) {
@@ -50,19 +77,6 @@ export default function ScannerPage() {
     } finally {
       setUploading(false);
     }
-  }
-
-  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (file) void handleFile(file);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  }
-
-  function handleDrop(event: React.DragEvent<HTMLLabelElement>) {
-    event.preventDefault();
-    setDragActive(false);
-    const file = event.dataTransfer.files?.[0];
-    if (file) void handleFile(file);
   }
 
   useEffect(() => {
@@ -96,91 +110,94 @@ export default function ScannerPage() {
           </p>
         </header>
 
-        <label
-          onDragOver={(event) => {
-            event.preventDefault();
-            setDragActive(true);
-          }}
-          onDragLeave={() => setDragActive(false)}
-          onDrop={handleDrop}
-          className={`mb-6 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-10 text-sm transition-colors ${
-            dragActive
-              ? "border-accent bg-accent-soft text-accent"
-              : "border-surface-border bg-surface text-muted hover:border-accent/40 hover:bg-accent-soft/40"
-          }`}
-        >
-          <motion.svg
-            viewBox="0 0 24 24"
-            fill="none"
-            className="h-8 w-8"
-            animate={uploading ? { y: [0, -4, 0] } : {}}
-            transition={{ duration: 1, repeat: uploading ? Infinity : 0 }}
-          >
-            <path
-              d="M12 16V4m0 0 4 4m-4-4-4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </motion.svg>
-          <span className="font-medium">
-            {uploading ? "Uploading…" : dragActive ? "Drop it here" : "Click or drag a .zip repository archive"}
-          </span>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".zip"
-            onChange={handleFileChange}
-            disabled={uploading}
-            className="hidden"
-          />
-        </label>
-        {uploadError && <p className="mb-4 text-sm text-red-600 dark:text-red-400">{uploadError}</p>}
-
-        <ul className="flex flex-col gap-3">
-          {scans.length === 0 && (
-            <li className="text-sm text-muted">No repositories scanned yet.</li>
+        <UploadDropzone
+          accept=".zip"
+          uploading={uploading}
+          idleLabel="Click or drag a .zip repository archive"
+          uploadingLabel="Uploading and extracting…"
+          hint="Scanned for security, GDPR, AI, and ISO 27001 evidence"
+          onFile={(file) => void handleFile(file)}
+        />
+        <AnimatePresence>
+          {uploadError && (
+            <motion.p
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mb-4 overflow-hidden text-sm text-red-600 dark:text-red-400"
+            >
+              {uploadError}
+            </motion.p>
           )}
-          <AnimatePresence initial={false}>
-            {scans.map((scan) => (
-              <motion.li
-                key={scan.id}
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-              >
-                <Link
-                  href={`/scanner/${scan.id}`}
-                  className="block rounded-2xl border border-surface-border bg-surface p-4 shadow-sm transition-colors hover:border-accent/40"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium text-foreground">
-                      {scan.original_filename}
-                    </span>
-                    <StatusBadge status={scan.status} />
-                  </div>
-                  {scan.status === "ready" && (
-                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-                      <span>{scan.file_count} files</span>
-                      <span>{formatSize(scan.total_size_bytes)}</span>
-                      {scan.detected_languages.slice(0, 4).map((language) => (
-                        <span key={language} className="rounded-full bg-accent-soft px-2 py-0.5 text-accent">
-                          {language}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {scan.status === "failed" && scan.error_message && (
-                    <p className="mt-2 text-xs text-red-600 dark:text-red-400">
-                      {scan.error_message}
-                    </p>
-                  )}
-                </Link>
-              </motion.li>
+        </AnimatePresence>
+
+        {!scansLoaded ? (
+          <div className="flex flex-col gap-3">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-[72px]" />
             ))}
-          </AnimatePresence>
-        </ul>
+          </div>
+        ) : scans.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-surface-border py-10 text-center">
+            <RepoIcon className="h-8 w-8 text-muted opacity-60" />
+            <p className="text-sm text-muted">No repositories scanned yet.</p>
+          </div>
+        ) : (
+          <motion.ul
+            className="flex flex-col gap-3"
+            variants={listVariants}
+            initial="hidden"
+            animate="show"
+          >
+            <AnimatePresence initial={false}>
+              {scans.map((scan) => (
+                <motion.li
+                  key={scan.id}
+                  layout
+                  variants={{
+                    hidden: { opacity: 0, y: -8 },
+                    show: { opacity: 1, y: 0 },
+                  }}
+                  exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                >
+                  <Link
+                    href={`/scanner/${scan.id}`}
+                    className="card-interactive block rounded-2xl border border-surface-border bg-surface p-4 hover:border-accent/40"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+                        <RepoIcon className="h-4.5 w-4.5" />
+                      </div>
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+                        {scan.original_filename}
+                      </span>
+                      <StatusBadge status={scan.status} />
+                    </div>
+                    {scan.status === "ready" && (
+                      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-surface-border pt-3 text-xs text-muted">
+                        <span>{scan.file_count} files</span>
+                        <span>{formatSize(scan.total_size_bytes)}</span>
+                        {scan.detected_languages.slice(0, 4).map((language) => (
+                          <span
+                            key={language}
+                            className="rounded-full bg-accent-soft px-2 py-0.5 text-accent"
+                          >
+                            {language}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {scan.status === "failed" && scan.error_message && (
+                      <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                        {scan.error_message}
+                      </p>
+                    )}
+                  </Link>
+                </motion.li>
+              ))}
+            </AnimatePresence>
+          </motion.ul>
+        )}
       </div>
     </div>
   );

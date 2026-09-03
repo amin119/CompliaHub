@@ -19,6 +19,7 @@ from app.tasks.scan import (
     detect_frameworks_task,
     extract_and_classify_files_task,
     run_ai_analyzers_task,
+    run_iso27001_analyzers_task,
     run_privacy_analyzers_task,
     run_security_analyzers_task,
 )
@@ -69,6 +70,7 @@ def upload_scan(file: UploadFile = File(...), db: Session = Depends(get_db)):
         run_security_analyzers_task.s(),
         run_privacy_analyzers_task.s(),
         run_ai_analyzers_task.s(),
+        run_iso27001_analyzers_task.s(),
     ).apply_async()
 
     return scan
