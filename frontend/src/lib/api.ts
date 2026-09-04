@@ -37,6 +37,13 @@ async function parseErrorDetail(response: Response): Promise<string> {
   try {
     const body = await response.json();
     if (typeof body?.detail === "string") return body.detail;
+    // FastAPI's own request-validation errors (422) shape `detail` as a
+    // list of {loc, msg, type} objects, not a string — e.g. Phase 7's
+    // review form needs the actual "notes must be a substantive
+    // justification" message, not a generic "Request failed (422)".
+    if (Array.isArray(body?.detail) && typeof body.detail[0]?.msg === "string") {
+      return body.detail[0].msg;
+    }
   } catch {
     // response body wasn't JSON — fall through to the generic message
   }
@@ -246,9 +253,20 @@ export type EvidenceItem = {
   evidence_metadata: Record<string, unknown> | null;
 };
 
+export type FindingReview = {
+  id: string;
+  finding_id: string;
+  reviewer_name: string | null;
+  decision: string;
+  notes: string;
+  previous_status: string | null;
+  created_at: string;
+};
+
 export type FindingDetail = Finding & {
   reasoning: string;
   evidence: EvidenceItem[];
+  reviews: FindingReview[];
 };
 
 export async function getScanFindings(
@@ -289,6 +307,30 @@ export async function validateFinding(
   });
   if (!response.ok) {
     throw new ValidateFindingError(await parseErrorDetail(response), response.status);
+  }
+  return response.json();
+}
+
+export class ReviewFindingError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export async function submitFindingReview(
+  scanId: string,
+  findingId: string,
+  payload: { reviewer_name?: string | null; decision: string; notes: string },
+): Promise<FindingReview> {
+  const response = await fetch(`${API_URL}/scans/${scanId}/findings/${findingId}/reviews`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new ReviewFindingError(await parseErrorDetail(response), response.status);
   }
   return response.json();
 }

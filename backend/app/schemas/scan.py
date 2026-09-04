@@ -1,7 +1,21 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# The compliance-scanner spec's 6-value status vocabulary — reused verbatim
+# by FindingReviewRequest.decision, since a review is the one mechanism
+# allowed to assert any of these on a Finding (see FindingReview's model
+# docstring). Spelled out once here rather than re-derived elsewhere.
+_FINDING_STATUSES = (
+    "VERIFIED",
+    "PARTIALLY_VERIFIED",
+    "NOT_VERIFIED",
+    "POTENTIAL_NON_COMPLIANCE",
+    "NOT_APPLICABLE",
+    "REQUIRES_HUMAN_REVIEW",
+)
 
 
 class ScanResponse(BaseModel):
@@ -73,9 +87,44 @@ class FindingResponse(BaseModel):
     created_at: datetime
 
 
+class FindingReviewRequest(BaseModel):
+    reviewer_name: str | None = None
+    decision: Literal[_FINDING_STATUSES]
+    notes: str = Field(min_length=10)
+
+    @field_validator("notes")
+    @classmethod
+    def _notes_not_blank(cls, v: str) -> str:
+        stripped = v.strip()
+        if len(stripped) < 10:
+            raise ValueError("notes must be a substantive justification, not blank/whitespace")
+        return stripped
+
+    @field_validator("reviewer_name")
+    @classmethod
+    def _blank_name_to_none(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        stripped = v.strip()
+        return stripped or None
+
+
+class FindingReviewResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    finding_id: uuid.UUID
+    reviewer_name: str | None
+    decision: str
+    notes: str
+    previous_status: str | None
+    created_at: datetime
+
+
 class FindingDetailResponse(FindingResponse):
     reasoning: str
     evidence: list[EvidenceResponse]
+    reviews: list[FindingReviewResponse]
 
 
 class BulkValidationRequest(BaseModel):

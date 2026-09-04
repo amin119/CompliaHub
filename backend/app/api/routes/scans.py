@@ -8,17 +8,25 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.models.scan import Finding, RepositoryFile, Scan
+from app.models.scan import Finding, FindingReview, RepositoryFile, Scan
 from app.schemas.scan import (
     BulkValidationRequest,
     BulkValidationResult,
     EvidenceResponse,
     FindingDetailResponse,
     FindingResponse,
+    FindingReviewRequest,
+    FindingReviewResponse,
     RepositoryFileResponse,
     ScanResponse,
 )
-from app.services import compliance_retrieval, finding_validation, scan_storage, storage
+from app.services import (
+    compliance_retrieval,
+    finding_review,
+    finding_validation,
+    scan_storage,
+    storage,
+)
 from app.services.hashing import sha256_bytes
 from app.tasks.scan import (
     detect_frameworks_task,
@@ -219,3 +227,41 @@ def validate_findings_bulk(
             BulkValidationResult(finding_id=finding_id, ok=True, evidence=evidence, error=None)
         )
     return results
+
+
+@router.post(
+    "/{scan_id}/findings/{finding_id}/reviews",
+    response_model=FindingReviewResponse,
+    status_code=201,
+)
+def create_finding_review(
+    scan_id: uuid.UUID,
+    finding_id: uuid.UUID,
+    request: FindingReviewRequest,
+    db: Session = Depends(get_db),
+):
+    """Phase 7: records a human's review decision, which — unlike Phase 6's
+    LLM validation — is the one mechanism allowed to actually set
+    `Finding.status` (see `FindingReview`'s model docstring). Synchronous,
+    direct-DB-write, no Celery: this is a plain data-entry action, lighter
+    even than Phase 6's validate endpoint (no LLM/retrieval call at all).
+    """
+    finding = db.scalar(
+        select(Finding).where(Finding.id == finding_id, Finding.scan_id == scan_id)
+    )
+    if finding is None:
+        raise HTTPException(status_code=404, detail="finding not found")
+
+    previous_status = finding_review.apply_review(finding, request.decision)
+    review = FindingReview(
+        scan_id=scan_id,
+        finding_id=finding_id,
+        reviewer_name=request.reviewer_name,
+        decision=request.decision,
+        notes=request.notes,
+        previous_status=previous_status,
+    )
+    db.add(review)
+    db.commit()
+    db.refresh(review)
+    return review
