@@ -8,6 +8,8 @@ import {
   getScanFiles,
   getScanFinding,
   getScanFindings,
+  validateFinding,
+  ValidateFindingError,
   type Finding,
   type FindingDetail,
   type RepositoryFile,
@@ -28,6 +30,18 @@ const SEVERITY_BORDER: Record<string, string> = {
   MEDIUM: "border-l-amber-500",
   LOW: "border-l-surface-border",
   INFORMATIONAL: "border-l-surface-border",
+};
+
+const FINDING_ASSESSMENT_LABELS: Record<string, string> = {
+  likely_true_positive: "Likely true positive",
+  likely_false_positive: "Likely false positive",
+  insufficient_evidence: "Insufficient evidence",
+};
+
+const CONTEXT_RELATIONSHIP_LABELS: Record<string, string> = {
+  supports_concern: "Supports concern",
+  contradicts_concern: "Contradicts concern",
+  not_addressed: "Not addressed",
 };
 
 function buildPipelineStages(scan: ScanStatus): PipelineStage[] {
@@ -64,6 +78,10 @@ export default function ScanDetailPage() {
   const [activeTab, setActiveTab] = useState<"files" | "findings">("files");
   const [expandedFindingId, setExpandedFindingId] = useState<string | null>(null);
   const [findingDetails, setFindingDetails] = useState<Record<string, FindingDetail>>({});
+  const [validatingFindingId, setValidatingFindingId] = useState<string | null>(null);
+  const [validationNote, setValidationNote] = useState<
+    Record<string, { message: string; kind: "info" | "error" }>
+  >({});
   const [error, setError] = useState<string | null>(null);
 
   function toggleFinding(findingId: string) {
@@ -72,6 +90,32 @@ export default function ScanDetailPage() {
       getScanFinding(scanId, findingId)
         .then((detail) => setFindingDetails((prev) => ({ ...prev, [findingId]: detail })))
         .catch(() => {});
+    }
+  }
+
+  async function handleValidate(findingId: string) {
+    setValidatingFindingId(findingId);
+    setValidationNote((prev) => {
+      const next = { ...prev };
+      delete next[findingId];
+      return next;
+    });
+    try {
+      const evidence = await validateFinding(scanId, findingId);
+      setFindingDetails((prev) => {
+        const detail = prev[findingId];
+        if (!detail) return prev;
+        return { ...prev, [findingId]: { ...detail, evidence: [evidence, ...detail.evidence] } };
+      });
+    } catch (err) {
+      // 422 ("no standards ingested yet") is a normal fresh-install state,
+      // styled as an informational note rather than an error; anything
+      // else (404, 503 AI-unavailable) is a real error.
+      const kind = err instanceof ValidateFindingError && err.status === 422 ? "info" : "error";
+      const message = err instanceof Error ? err.message : "Validation failed.";
+      setValidationNote((prev) => ({ ...prev, [findingId]: { message, kind } }));
+    } finally {
+      setValidatingFindingId(null);
     }
   }
 
@@ -497,6 +541,55 @@ export default function ScanDetailPage() {
                                             <p className="text-muted">Loading detail…</p>
                                           ) : (
                                             <div className="flex flex-col gap-3">
+                                              <div className="flex flex-wrap items-center gap-2">
+                                                <button
+                                                  type="button"
+                                                  onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    void handleValidate(finding.id);
+                                                  }}
+                                                  disabled={validatingFindingId === finding.id}
+                                                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                                                    detail.evidence.some(
+                                                      (e) => e.source_type === "llm_reasoning",
+                                                    )
+                                                      ? "border border-surface-border text-muted hover:text-accent"
+                                                      : "bg-cta text-accent-foreground hover:opacity-90"
+                                                  }`}
+                                                >
+                                                  {validatingFindingId === finding.id ? (
+                                                    <>
+                                                      <motion.span
+                                                        className="h-2.5 w-2.5 rounded-full border-[1.5px] border-current border-t-transparent"
+                                                        animate={{ rotate: 360 }}
+                                                        transition={{
+                                                          duration: 0.7,
+                                                          repeat: Infinity,
+                                                          ease: "linear",
+                                                        }}
+                                                      />
+                                                      Validating…
+                                                    </>
+                                                  ) : detail.evidence.some(
+                                                      (e) => e.source_type === "llm_reasoning",
+                                                    ) ? (
+                                                    "Re-validate with AI"
+                                                  ) : (
+                                                    "Validate with AI"
+                                                  )}
+                                                </button>
+                                              </div>
+                                              {validationNote[finding.id] && (
+                                                <p
+                                                  className={
+                                                    validationNote[finding.id].kind === "info"
+                                                      ? "text-muted"
+                                                      : "text-red-600 dark:text-red-400"
+                                                  }
+                                                >
+                                                  {validationNote[finding.id].message}
+                                                </p>
+                                              )}
                                               <div>
                                                 <p className="mb-1 font-medium text-muted">Reasoning</p>
                                                 <p className="text-foreground">{detail.reasoning}</p>
@@ -517,42 +610,100 @@ export default function ScanDetailPage() {
                                                     Evidence ({detail.evidence.length})
                                                   </p>
                                                   <div className="flex flex-col gap-2">
-                                                    {detail.evidence.map((evidence) => (
-                                                      <div
-                                                        key={evidence.id}
-                                                        className="rounded-xl border border-surface-border bg-surface p-2.5"
-                                                      >
-                                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-muted">
-                                                          {evidence.file_path && (
-                                                            <span className="text-foreground">
-                                                              {evidence.file_path}
-                                                              {evidence.line_start &&
-                                                                `:${evidence.line_start}${
-                                                                  evidence.line_end &&
-                                                                  evidence.line_end !== evidence.line_start
-                                                                    ? `-${evidence.line_end}`
-                                                                    : ""
+                                                    {detail.evidence.map((evidence) => {
+                                                      const isAiReview =
+                                                        evidence.source_type === "llm_reasoning";
+                                                      const metadata = evidence.evidence_metadata as
+                                                        | {
+                                                            finding_assessment?: string;
+                                                            context_relationship?: string;
+                                                            retrieved_citations?: {
+                                                              clause_number: string | null;
+                                                              document_filename: string;
+                                                            }[];
+                                                          }
+                                                        | null;
+                                                      return (
+                                                        <div
+                                                          key={evidence.id}
+                                                          className={`rounded-xl border p-2.5 ${
+                                                            isAiReview
+                                                              ? "border-purple/30 bg-purple/5"
+                                                              : "border-surface-border bg-surface"
+                                                          }`}
+                                                        >
+                                                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-muted">
+                                                            {evidence.file_path && (
+                                                              <span className="text-foreground">
+                                                                {evidence.file_path}
+                                                                {evidence.line_start &&
+                                                                  `:${evidence.line_start}${
+                                                                    evidence.line_end &&
+                                                                    evidence.line_end !==
+                                                                      evidence.line_start
+                                                                      ? `-${evidence.line_end}`
+                                                                      : ""
+                                                                  }`}
+                                                              </span>
+                                                            )}
+                                                            {evidence.source_type && (
+                                                              <span
+                                                                className={`rounded-full px-1.5 py-0 ${
+                                                                  isAiReview
+                                                                    ? "bg-purple/15 text-purple"
+                                                                    : "bg-accent-soft text-accent"
                                                                 }`}
-                                                            </span>
+                                                              >
+                                                                {isAiReview
+                                                                  ? "AI review"
+                                                                  : evidence.source_type}
+                                                              </span>
+                                                            )}
+                                                          </div>
+                                                          {isAiReview && metadata && (
+                                                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                                              {metadata.finding_assessment && (
+                                                                <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] font-medium text-foreground">
+                                                                  {FINDING_ASSESSMENT_LABELS[
+                                                                    metadata.finding_assessment
+                                                                  ] ?? metadata.finding_assessment}
+                                                                </span>
+                                                              )}
+                                                              {metadata.context_relationship && (
+                                                                <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] font-medium text-foreground">
+                                                                  {CONTEXT_RELATIONSHIP_LABELS[
+                                                                    metadata.context_relationship
+                                                                  ] ?? metadata.context_relationship}
+                                                                </span>
+                                                              )}
+                                                            </div>
                                                           )}
-                                                          {evidence.source_type && (
-                                                            <span className="rounded-full bg-accent-soft px-1.5 py-0 text-accent">
-                                                              {evidence.source_type}
-                                                            </span>
+                                                          {evidence.snippet && (
+                                                            <pre className="themed-scroll mt-1.5 overflow-x-auto rounded-lg bg-background p-2 font-mono text-[11px] text-foreground">
+                                                              {evidence.snippet}
+                                                            </pre>
                                                           )}
+                                                          {!evidence.snippet && evidence.description && (
+                                                            <p className="mt-1 text-foreground">
+                                                              {evidence.description}
+                                                            </p>
+                                                          )}
+                                                          {isAiReview &&
+                                                            metadata?.retrieved_citations &&
+                                                            metadata.retrieved_citations.length > 0 && (
+                                                              <div className="mt-1.5 text-[11px] text-muted">
+                                                                Grounded in:{" "}
+                                                                {metadata.retrieved_citations
+                                                                  .map(
+                                                                    (c) =>
+                                                                      `${c.clause_number ?? "—"} (${c.document_filename})`,
+                                                                  )
+                                                                  .join(", ")}
+                                                              </div>
+                                                            )}
                                                         </div>
-                                                        {evidence.snippet && (
-                                                          <pre className="themed-scroll mt-1.5 overflow-x-auto rounded-lg bg-background p-2 font-mono text-[11px] text-foreground">
-                                                            {evidence.snippet}
-                                                          </pre>
-                                                        )}
-                                                        {!evidence.snippet && evidence.description && (
-                                                          <p className="mt-1 text-foreground">
-                                                            {evidence.description}
-                                                          </p>
-                                                        )}
-                                                      </div>
-                                                    ))}
+                                                      );
+                                                    })}
                                                   </div>
                                                 </div>
                                               )}

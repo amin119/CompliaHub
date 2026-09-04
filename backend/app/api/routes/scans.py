@@ -2,18 +2,23 @@ import uuid
 
 from celery import chain
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.db import get_db
 from app.models.scan import Finding, RepositoryFile, Scan
 from app.schemas.scan import (
+    BulkValidationRequest,
+    BulkValidationResult,
+    EvidenceResponse,
     FindingDetailResponse,
     FindingResponse,
     RepositoryFileResponse,
     ScanResponse,
 )
-from app.services import scan_storage, storage
+from app.services import compliance_retrieval, finding_validation, scan_storage, storage
 from app.services.hashing import sha256_bytes
 from app.tasks.scan import (
     detect_frameworks_task,
@@ -25,6 +30,12 @@ from app.tasks.scan import (
 )
 
 router = APIRouter(prefix="/scans", tags=["scans"])
+
+# Phase 6: a bulk validate call runs sequentially (never parallel, to stay
+# under Voyage's tight per-account rate limit), so this cap keeps even the
+# worst case in the tens-of-seconds range rather than needing a Celery task
+# the way the scanner's multi-minute per-file passes do.
+_MAX_BULK_FINDINGS = 10
 
 
 @router.post("", response_model=ScanResponse, status_code=201)
@@ -140,3 +151,71 @@ def get_scan_finding(scan_id: uuid.UUID, finding_id: uuid.UUID, db: Session = De
     if finding is None:
         raise HTTPException(status_code=404, detail="finding not found")
     return finding
+
+
+def _validate_one_finding(db: Session, scan_id: uuid.UUID, finding_id: uuid.UUID):
+    """Shared by the single and bulk validate endpoints: retrieve
+    grounding context, call the validation LLM, persist the verdict as a
+    new Evidence row. Synchronous, in-request — like `/query`, a single
+    retrieval+LLM round trip is seconds, not the multi-minute per-file
+    passes the scanner's own Celery chain exists for, so no queueing is
+    needed here.
+    """
+    finding = db.scalar(
+        select(Finding).where(Finding.id == finding_id, Finding.scan_id == scan_id)
+    )
+    if finding is None:
+        raise HTTPException(status_code=404, detail="finding not found")
+
+    try:
+        context = compliance_retrieval.retrieve_context_for_finding(db, finding)
+    except compliance_retrieval.NoStandardsContextError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    try:
+        verdict = finding_validation.validate_finding(finding, context.chunks)
+    except (finding_validation.ValidationRateLimited, ValidationError) as exc:
+        raise HTTPException(
+            status_code=503, detail="AI validation is temporarily unavailable, try again shortly."
+        ) from exc
+
+    settings = get_settings()
+    return finding_validation.persist_verdict(
+        db, finding, verdict, context, model=settings.gemini_validation_model, top_k=5
+    )
+
+
+@router.post("/{scan_id}/findings/{finding_id}/validate", response_model=EvidenceResponse)
+def validate_finding_endpoint(
+    scan_id: uuid.UUID, finding_id: uuid.UUID, db: Session = Depends(get_db)
+):
+    return _validate_one_finding(db, scan_id, finding_id)
+
+
+@router.post("/{scan_id}/findings/validate-bulk", response_model=list[BulkValidationResult])
+def validate_findings_bulk(
+    scan_id: uuid.UUID, request: BulkValidationRequest, db: Session = Depends(get_db)
+):
+    if len(request.finding_ids) > _MAX_BULK_FINDINGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"at most {_MAX_BULK_FINDINGS} findings per bulk validation call",
+        )
+
+    results: list[BulkValidationResult] = []
+    for finding_id in request.finding_ids:
+        try:
+            evidence = _validate_one_finding(db, scan_id, finding_id)
+        except HTTPException as exc:
+            # A single item's failure (not found / no standards context /
+            # LLM unavailable) must never abort the rest of the batch.
+            results.append(
+                BulkValidationResult(
+                    finding_id=finding_id, ok=False, evidence=None, error=str(exc.detail)
+                )
+            )
+            continue
+        results.append(
+            BulkValidationResult(finding_id=finding_id, ok=True, evidence=evidence, error=None)
+        )
+    return results

@@ -76,3 +76,14 @@ class FindingResponse(BaseModel):
 class FindingDetailResponse(FindingResponse):
     reasoning: str
     evidence: list[EvidenceResponse]
+
+
+class BulkValidationRequest(BaseModel):
+    finding_ids: list[uuid.UUID]
+
+
+class BulkValidationResult(BaseModel):
+    finding_id: uuid.UUID
+    ok: bool
+    evidence: EvidenceResponse | None
+    error: str | None
