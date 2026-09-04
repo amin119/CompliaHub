@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     # gemini_extraction_model) since the final answer is a different quality
     # bar than per-chunk extraction and may warrant a heavier model later.
     gemini_answer_model: str = "gemini-3.1-flash-lite"
+    # Compliance scanner Phase 6 (Agentic RAG): FindingValidationAgent's own
+    # setting, not reused from gemini_extraction_model — judging retrieved
+    # standard text against a finding's evidence is closer to answer
+    # generation's reasoning bar than the classifier's four-way routing.
+    gemini_validation_model: str = "gemini-3.1-flash-lite"
 
 
 @lru_cache

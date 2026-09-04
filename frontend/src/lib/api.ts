@@ -233,19 +233,22 @@ export type Finding = {
   created_at: string;
 };
 
+export type EvidenceItem = {
+  id: string;
+  source_type: string | null;
+  rule_id: string | null;
+  file_path: string | null;
+  line_start: number | null;
+  line_end: number | null;
+  snippet: string | null;
+  description: string;
+  confidence: string | null;
+  evidence_metadata: Record<string, unknown> | null;
+};
+
 export type FindingDetail = Finding & {
   reasoning: string;
-  evidence: {
-    id: string;
-    source_type: string | null;
-    rule_id: string | null;
-    file_path: string | null;
-    line_start: number | null;
-    line_end: number | null;
-    snippet: string | null;
-    description: string;
-    confidence: string | null;
-  }[];
+  evidence: EvidenceItem[];
 };
 
 export async function getScanFindings(
@@ -266,5 +269,26 @@ export async function getScanFindings(
 export async function getScanFinding(scanId: string, findingId: string): Promise<FindingDetail> {
   const response = await fetch(`${API_URL}/scans/${scanId}/findings/${findingId}`);
   if (!response.ok) throw new Error(await parseErrorDetail(response));
+  return response.json();
+}
+
+export class ValidateFindingError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export async function validateFinding(
+  scanId: string,
+  findingId: string,
+): Promise<EvidenceItem> {
+  const response = await fetch(`${API_URL}/scans/${scanId}/findings/${findingId}/validate`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new ValidateFindingError(await parseErrorDetail(response), response.status);
+  }
   return response.json();
 }
