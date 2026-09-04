@@ -89,6 +89,9 @@ class Scan(Base):
     findings: Mapped[list["Finding"]] = relationship(
         back_populates="scan", cascade="all, delete-orphan"
     )
+    finding_reviews: Mapped[list["FindingReview"]] = relationship(
+        back_populates="scan", cascade="all, delete-orphan"
+    )
 
 
 class RepositoryFile(Base):
@@ -227,3 +230,61 @@ class Finding(Base):
 
     scan: Mapped["Scan"] = relationship(back_populates="findings")
     evidence: Mapped[list["Evidence"]] = relationship(back_populates="finding")
+    reviews: Mapped[list["FindingReview"]] = relationship(
+        back_populates="finding",
+        cascade="all, delete-orphan",
+        order_by="FindingReview.created_at.desc()",
+    )
+
+
+class FindingReview(Base):
+    """One human's review decision on a Finding — Phase 7. Append-only,
+    same "never mutate, always insert" convention as `Evidence`: a finding
+    can be reviewed multiple times over its life (re-reviewed after new
+    evidence or an AI validation, or by a second person), and every past
+    review stays visible, never overwritten.
+
+    `decision` reuses `Finding.status`'s own 6-value spec vocabulary
+    directly — creating a review is the authoritative act of setting that
+    status (see the review endpoint in `api/routes/scans.py`), the one
+    place VERIFIED/PARTIALLY_VERIFIED/NOT_APPLICABLE can ever be written.
+    Phase 6's `FindingValidationAgent` deliberately never touches
+    `Finding.status` (only adds an Evidence row) — this table is what
+    restores this project's "only a human can claim positive compliance"
+    rule.
+
+    `notes` is NOT NULL and enforced non-empty (min length, at the Pydantic
+    layer) for every decision, not just the positive-compliance ones: a
+    human overriding to VERIFIED/PARTIALLY_VERIFIED/NOT_APPLICABLE with no
+    written reasoning would repeat exactly the unjustified-claim problem
+    this project has always refused to let an LLM get away with.
+
+    `reviewer_name` is free text, not a foreign key to any user/auth table
+    — this backend has no authentication system anywhere (an explicit,
+    project-wide scope decision, not an oversight here) — so it's an
+    honestly-unverified, self-reported label, never an identity claim.
+    """
+
+    __tablename__ = "finding_reviews"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    scan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("scans.id", ondelete="CASCADE"), nullable=False
+    )
+    # Unlike Evidence.finding_id (nullable, SET NULL — evidence can exist
+    # independent of one finding), a review is meaningless without its
+    # finding, so this is NOT NULL / CASCADE.
+    finding_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("findings.id", ondelete="CASCADE"), nullable=False
+    )
+    reviewer_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    decision: Mapped[str] = mapped_column(String, nullable=False)
+    notes: Mapped[str] = mapped_column(Text, nullable=False)
+    # Snapshot of Finding.status immediately before this review — lets the
+    # UI render a clear before -> after per entry without reconstructing
+    # it by joining back through every earlier review row.
+    previous_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    scan: Mapped["Scan"] = relationship(back_populates="finding_reviews")
+    finding: Mapped["Finding"] = relationship(back_populates="reviews")

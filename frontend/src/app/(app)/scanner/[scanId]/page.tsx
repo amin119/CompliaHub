@@ -8,6 +8,7 @@ import {
   getScanFiles,
   getScanFinding,
   getScanFindings,
+  submitFindingReview,
   validateFinding,
   ValidateFindingError,
   type Finding,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
 import SeverityBadge from "@/components/SeverityBadge";
+import FindingStatusBadge, { FINDING_STATUSES, findingStatusLabel } from "@/components/FindingStatusBadge";
 import ComplianceDisclaimerBanner from "@/components/ComplianceDisclaimerBanner";
 import PipelineProgress, { type PipelineStage } from "@/components/PipelineProgress";
 import Skeleton from "@/components/Skeleton";
@@ -75,6 +77,8 @@ export default function ScanDetailPage() {
   const [filterType, setFilterType] = useState<string | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [frameworkFilter, setFrameworkFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
   const [activeTab, setActiveTab] = useState<"files" | "findings">("files");
   const [expandedFindingId, setExpandedFindingId] = useState<string | null>(null);
   const [findingDetails, setFindingDetails] = useState<Record<string, FindingDetail>>({});
@@ -82,7 +86,23 @@ export default function ScanDetailPage() {
   const [validationNote, setValidationNote] = useState<
     Record<string, { message: string; kind: "info" | "error" }>
   >({});
+  const [reviewForms, setReviewForms] = useState<
+    Record<string, { reviewerName: string; decision: string; notes: string }>
+  >({});
+  const [submittingReviewId, setSubmittingReviewId] = useState<string | null>(null);
+  const [reviewNote, setReviewNote] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+
+  function updateReviewForm(
+    findingId: string,
+    seedDecision: string,
+    patch: Partial<{ reviewerName: string; decision: string; notes: string }>,
+  ) {
+    setReviewForms((prev) => {
+      const current = prev[findingId] ?? { reviewerName: "", decision: seedDecision, notes: "" };
+      return { ...prev, [findingId]: { ...current, ...patch } };
+    });
+  }
 
   function toggleFinding(findingId: string) {
     setExpandedFindingId((current) => (current === findingId ? null : findingId));
@@ -116,6 +136,57 @@ export default function ScanDetailPage() {
       setValidationNote((prev) => ({ ...prev, [findingId]: { message, kind } }));
     } finally {
       setValidatingFindingId(null);
+    }
+  }
+
+  async function handleSubmitReview(findingId: string) {
+    const form = reviewForms[findingId];
+    if (!form) return;
+    setSubmittingReviewId(findingId);
+    setReviewNote((prev) => {
+      const next = { ...prev };
+      delete next[findingId];
+      return next;
+    });
+    try {
+      const review = await submitFindingReview(scanId, findingId, {
+        reviewer_name: form.reviewerName || null,
+        decision: form.decision,
+        notes: form.notes,
+      });
+      setFindingDetails((prev) => {
+        const detail = prev[findingId];
+        if (!detail) return prev;
+        return {
+          ...prev,
+          [findingId]: {
+            ...detail,
+            status: review.decision,
+            human_review_required: review.decision === "REQUIRES_HUMAN_REVIEW",
+            reviews: [review, ...detail.reviews],
+          },
+        };
+      });
+      setFindings((prev) =>
+        prev.map((f) =>
+          f.id === findingId
+            ? {
+                ...f,
+                status: review.decision,
+                human_review_required: review.decision === "REQUIRES_HUMAN_REVIEW",
+              }
+            : f,
+        ),
+      );
+      setReviewForms((prev) => ({
+        ...prev,
+        [findingId]: { reviewerName: form.reviewerName, decision: review.decision, notes: "" },
+      }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Review failed.";
+      setReviewNote((prev) => ({ ...prev, [findingId]: message }));
+    } finally {
+      setSubmittingReviewId(null);
     }
   }
 
@@ -223,10 +294,16 @@ export default function ScanDetailPage() {
   const frameworksPresent = Array.from(
     new Set(findings.map((f) => frameworkLabel(f.framework))),
   );
-  const visibleFindings =
-    frameworkFilter === null
-      ? findings
-      : findings.filter((f) => frameworkLabel(f.framework) === frameworkFilter);
+  // Status filter chips, same client-side pattern as framework — computed
+  // from whichever of the 6 spec statuses are actually present in this
+  // scan's findings.
+  const statusesPresent = Array.from(new Set(findings.map((f) => f.status))).sort(
+    (a, b) => FINDING_STATUSES.indexOf(a as never) - FINDING_STATUSES.indexOf(b as never),
+  );
+  const visibleFindings = findings
+    .filter((f) => frameworkFilter === null || frameworkLabel(f.framework) === frameworkFilter)
+    .filter((f) => statusFilter === null || f.status === statusFilter)
+    .filter((f) => !needsReviewOnly || f.human_review_required);
   const severityCounts = SEVERITY_ORDER.map((severity) => ({
     severity,
     count: findings.filter((f) => f.severity === severity).length,
@@ -460,6 +537,48 @@ export default function ScanDetailPage() {
                   </div>
                 )}
 
+                {scan.findings_status === "ready" && statusesPresent.length > 0 && (
+                  <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setStatusFilter(null)}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                        statusFilter === null
+                          ? "border-accent bg-accent-soft text-accent"
+                          : "border-surface-border text-muted hover:text-foreground"
+                      }`}
+                    >
+                      All statuses
+                    </button>
+                    {statusesPresent.map((status) => (
+                      <button
+                        key={status}
+                        type="button"
+                        onClick={() => setStatusFilter(status)}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                          statusFilter === status
+                            ? "border-accent bg-accent-soft text-accent"
+                            : "border-surface-border text-muted hover:text-foreground"
+                        }`}
+                      >
+                        {findingStatusLabel(status)}
+                      </button>
+                    ))}
+                    <span className="mx-1 h-4 w-px bg-surface-border" />
+                    <button
+                      type="button"
+                      onClick={() => setNeedsReviewOnly((v) => !v)}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                        needsReviewOnly
+                          ? "border-amber-400 bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"
+                          : "border-surface-border text-muted hover:text-foreground"
+                      }`}
+                    >
+                      Needs review only
+                    </button>
+                  </div>
+                )}
+
                 {frameworkFilter === "ISO27001" && <ComplianceDisclaimerBanner />}
 
                 <div className="themed-scroll overflow-x-auto rounded-2xl border border-surface-border">
@@ -472,6 +591,7 @@ export default function ScanDetailPage() {
                       <thead className="bg-surface text-xs text-muted">
                         <tr>
                           <th className="px-3 py-2 font-medium">Severity</th>
+                          <th className="px-3 py-2 font-medium">Status</th>
                           <th className="px-3 py-2 font-medium">Title</th>
                           <th className="px-3 py-2 font-medium">Framework</th>
                           <th className="px-3 py-2 font-medium">Category</th>
@@ -493,6 +613,9 @@ export default function ScanDetailPage() {
                               >
                                 <td className="px-3 py-2">
                                   <SeverityBadge severity={finding.severity} />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <FindingStatusBadge status={finding.status} />
                                 </td>
                                 <td className="px-3 py-2 text-xs text-foreground">
                                   <div className="flex items-start gap-1.5">
@@ -526,7 +649,7 @@ export default function ScanDetailPage() {
                                 <td className="px-3 py-2 text-xs text-muted">{finding.confidence}</td>
                               </tr>
                               <tr>
-                                <td colSpan={5} className="p-0">
+                                <td colSpan={6} className="p-0">
                                   <AnimatePresence initial={false}>
                                     {expanded && (
                                       <motion.div
@@ -707,6 +830,120 @@ export default function ScanDetailPage() {
                                                   </div>
                                                 </div>
                                               )}
+
+                                              <div className="border-t border-surface-border pt-3">
+                                                <p className="mb-1.5 font-medium text-muted">
+                                                  Human review{" "}
+                                                  {detail.reviews.length > 0 &&
+                                                    `(${detail.reviews.length})`}
+                                                </p>
+                                                {detail.reviews.length > 0 && (
+                                                  <div className="mb-3 flex flex-col gap-2">
+                                                    {detail.reviews.map((review) => (
+                                                      <div
+                                                        key={review.id}
+                                                        className="rounded-xl border border-surface-border bg-surface p-2.5"
+                                                      >
+                                                        <div className="flex flex-wrap items-center gap-1.5">
+                                                          {review.previous_status && (
+                                                            <>
+                                                              <FindingStatusBadge
+                                                                status={review.previous_status}
+                                                              />
+                                                              <span className="text-muted">→</span>
+                                                            </>
+                                                          )}
+                                                          <FindingStatusBadge status={review.decision} />
+                                                          <span className="text-[11px] text-muted">
+                                                            {review.reviewer_name ??
+                                                              "Anonymous reviewer"}{" "}
+                                                            ·{" "}
+                                                            {new Date(
+                                                              review.created_at,
+                                                            ).toLocaleString()}
+                                                          </span>
+                                                        </div>
+                                                        <p className="mt-1 text-foreground">
+                                                          {review.notes}
+                                                        </p>
+                                                      </div>
+                                                    ))}
+                                                  </div>
+                                                )}
+
+                                                <form
+                                                  onClick={(event) => event.stopPropagation()}
+                                                  onSubmit={(event) => {
+                                                    event.preventDefault();
+                                                    void handleSubmitReview(finding.id);
+                                                  }}
+                                                  className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface p-3"
+                                                >
+                                                  <div className="flex flex-wrap gap-2">
+                                                    <input
+                                                      type="text"
+                                                      value={
+                                                        (reviewForms[finding.id] ?? {
+                                                          reviewerName: "",
+                                                        }).reviewerName
+                                                      }
+                                                      onChange={(event) =>
+                                                        updateReviewForm(finding.id, finding.status, {
+                                                          reviewerName: event.target.value,
+                                                        })
+                                                      }
+                                                      placeholder="Reviewer (self-reported)"
+                                                      className="min-w-0 flex-1 rounded-lg border border-surface-border bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-accent/50 focus:outline-none"
+                                                    />
+                                                    <select
+                                                      value={
+                                                        (reviewForms[finding.id] ?? {
+                                                          decision: finding.status,
+                                                        }).decision
+                                                      }
+                                                      onChange={(event) =>
+                                                        updateReviewForm(finding.id, finding.status, {
+                                                          decision: event.target.value,
+                                                        })
+                                                      }
+                                                      className="rounded-lg border border-surface-border bg-background px-2.5 py-1.5 text-xs text-foreground focus:border-accent/50 focus:outline-none"
+                                                    >
+                                                      {FINDING_STATUSES.map((s) => (
+                                                        <option key={s} value={s}>
+                                                          {findingStatusLabel(s)}
+                                                        </option>
+                                                      ))}
+                                                    </select>
+                                                  </div>
+                                                  <textarea
+                                                    value={
+                                                      (reviewForms[finding.id] ?? { notes: "" }).notes
+                                                    }
+                                                    onChange={(event) =>
+                                                      updateReviewForm(finding.id, finding.status, {
+                                                        notes: event.target.value,
+                                                      })
+                                                    }
+                                                    placeholder="Justification for this decision (required)…"
+                                                    rows={2}
+                                                    className="w-full resize-none rounded-lg border border-surface-border bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-accent/50 focus:outline-none"
+                                                  />
+                                                  {reviewNote[finding.id] && (
+                                                    <p className="text-red-600 dark:text-red-400">
+                                                      {reviewNote[finding.id]}
+                                                    </p>
+                                                  )}
+                                                  <button
+                                                    type="submit"
+                                                    disabled={submittingReviewId === finding.id}
+                                                    className="self-start rounded-full bg-cta px-3 py-1 text-xs font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                                                  >
+                                                    {submittingReviewId === finding.id
+                                                      ? "Submitting…"
+                                                      : "Submit review"}
+                                                  </button>
+                                                </form>
+                                              </div>
                                             </div>
                                           )}
                                         </div>
@@ -720,7 +957,7 @@ export default function ScanDetailPage() {
                         })}
                         {visibleFindings.length === 0 && (
                           <tr>
-                            <td colSpan={5} className="px-3 py-4 text-center text-xs text-muted">
+                            <td colSpan={6} className="px-3 py-4 text-center text-xs text-muted">
                               No findings — nothing this scan&apos;s rules flagged.
                             </td>
                           </tr>
