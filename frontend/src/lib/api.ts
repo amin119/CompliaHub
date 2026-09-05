@@ -373,3 +373,24 @@ export async function getScanSummary(scanId: string): Promise<ScanSummary> {
   if (!response.ok) throw new Error(await parseErrorDetail(response));
   return response.json();
 }
+
+export class RemediateFindingError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export async function remediateFinding(
+  scanId: string,
+  findingId: string,
+): Promise<EvidenceItem> {
+  const response = await fetch(`${API_URL}/scans/${scanId}/findings/${findingId}/remediate`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new RemediateFindingError(await parseErrorDetail(response), response.status);
+  }
+  return response.json();
+}

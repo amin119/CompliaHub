@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     # standard text against a finding's evidence is closer to answer
     # generation's reasoning bar than the classifier's four-way routing.
     gemini_validation_model: str = "gemini-3.1-flash-lite"
+    # Compliance scanner Phase 9 (Auto Remediation): RemediationAgent's own
+    # setting, not reused from gemini_validation_model — a code-fix
+    # suggestion is a different task shape (structured diff-relevant
+    # output) even though today's default model is the same.
+    gemini_remediation_model: str = "gemini-3.1-flash-lite"
 
 
 @lru_cache
