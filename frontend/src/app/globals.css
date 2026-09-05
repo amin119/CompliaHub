@@ -292,3 +292,19 @@ body {
 :root[data-theme="dark"] .card-interactive:hover {
   box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.5);
 }
+
+/* Phase 8 (Reports): browsers suppress background-color by default when
+   printing, which would otherwise silently drop every severity/status
+   badge's color-coding — exactly what a printed report needs most to stay
+   legible. Forcing light mode itself for print is handled in the report
+   page's own print handler (temporarily flips the `data-theme` DOM
+   attribute around `window.print()`) rather than here, since the dark
+   variant is keyed off that attribute, not a media query — a `@media
+   print` override of these tokens alone wouldn't touch literal `dark:`
+   utility classes like SeverityBadge's `dark:bg-red-500/15`. */
+@media print {
+  * {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}

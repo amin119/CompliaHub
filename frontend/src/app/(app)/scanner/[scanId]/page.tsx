@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import {
@@ -330,6 +331,24 @@ export default function ScanDetailPage() {
                     : "processing"
               }
             />
+            {[
+              scan.status,
+              scan.findings_status,
+              scan.privacy_status,
+              scan.ai_status,
+              scan.iso27001_status,
+            ].every((s) => TERMINAL_STATUSES.includes(s)) ? (
+              <Link
+                href={`/scanner/${scanId}/report`}
+                className="ml-auto text-sm font-medium text-accent hover:opacity-70"
+              >
+                View report →
+              </Link>
+            ) : (
+              <span className="ml-auto text-sm text-muted">
+                Report available once analysis finishes
+              </span>
+            )}
           </div>
           {scan.status === "failed" && scan.error_message && (
             <p className="mt-1 text-sm text-red-600 dark:text-red-400">{scan.error_message}</p>

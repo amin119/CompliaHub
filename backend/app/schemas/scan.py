@@ -127,6 +127,60 @@ class FindingDetailResponse(FindingResponse):
     reviews: list[FindingReviewResponse]
 
 
+class SeverityCount(BaseModel):
+    severity: str
+    count: int
+
+
+class FindingStatusCount(BaseModel):
+    status: str
+    count: int
+
+
+class FrameworkCount(BaseModel):
+    framework: str | None
+    count: int
+
+
+class ReviewCoverage(BaseModel):
+    total_findings: int
+    reviewed_findings: int
+    unreviewed_findings: int
+    requires_human_review_count: int
+    requires_human_review_unreviewed_count: int
+    total_reviews: int
+
+
+class ScanSummaryResponse(BaseModel):
+    """Phase 8: a per-scan aggregate for the report page — plain `BaseModel`,
+    not `from_attributes`, since this is computed (via `scan_summary.
+    build_scan_summary`) rather than a 1:1 ORM mirror. Deliberately carries
+    no single score/percentage/grade anywhere — only raw counts across
+    fixed, zero-filled vocabularies (see `docs/scanner-phase-5-iso27001-
+    mapping.md`'s standing "technical evidence coverage, not certification"
+    constraint, which this phase must respect too).
+    """
+
+    scan_id: uuid.UUID
+    original_filename: str
+    repository_name: str | None
+    detected_languages: list[str]
+    detected_frameworks: list[str]
+    file_count: int | None
+    total_size_bytes: int | None
+    status: str
+    findings_status: str
+    privacy_status: str
+    ai_status: str
+    iso27001_status: str
+    generated_at: datetime
+    total_findings: int
+    severity_counts: list[SeverityCount]
+    status_counts: list[FindingStatusCount]
+    framework_counts: list[FrameworkCount]
+    review_coverage: ReviewCoverage
+
+
 class BulkValidationRequest(BaseModel):
     finding_ids: list[uuid.UUID]
 

@@ -334,3 +334,42 @@ export async function submitFindingReview(
   }
   return response.json();
 }
+
+export type SeverityCount = { severity: string; count: number };
+export type FindingStatusCount = { status: string; count: number };
+export type FrameworkCount = { framework: string | null; count: number };
+export type ReviewCoverage = {
+  total_findings: number;
+  reviewed_findings: number;
+  unreviewed_findings: number;
+  requires_human_review_count: number;
+  requires_human_review_unreviewed_count: number;
+  total_reviews: number;
+};
+
+export type ScanSummary = {
+  scan_id: string;
+  original_filename: string;
+  repository_name: string | null;
+  detected_languages: string[];
+  detected_frameworks: string[];
+  file_count: number | null;
+  total_size_bytes: number | null;
+  status: string;
+  findings_status: string;
+  privacy_status: string;
+  ai_status: string;
+  iso27001_status: string;
+  generated_at: string;
+  total_findings: number;
+  severity_counts: SeverityCount[];
+  status_counts: FindingStatusCount[];
+  framework_counts: FrameworkCount[];
+  review_coverage: ReviewCoverage;
+};
+
+export async function getScanSummary(scanId: string): Promise<ScanSummary> {
+  const response = await fetch(`${API_URL}/scans/${scanId}/summary`);
+  if (!response.ok) throw new Error(await parseErrorDetail(response));
+  return response.json();
+}
