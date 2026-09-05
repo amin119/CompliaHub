@@ -85,11 +85,16 @@ export default function ScanDetailPage() {
   const [activeTab, setActiveTab] = useState<"files" | "findings">("files");
   const [expandedFindingId, setExpandedFindingId] = useState<string | null>(null);
   const [findingDetails, setFindingDetails] = useState<Record<string, FindingDetail>>({});
-  const [validatingFindingId, setValidatingFindingId] = useState<string | null>(null);
+  // A Set, not a single id: a scalar would let a second concurrent
+  // validate/remediate request on a *different* finding clear the first
+  // finding's loading state prematurely in its own `finally` block,
+  // letting a repeated click fire another real LLM call and persist
+  // another Evidence row before the first one even finished.
+  const [validatingFindingIds, setValidatingFindingIds] = useState<Set<string>>(() => new Set());
   const [validationNote, setValidationNote] = useState<
     Record<string, { message: string; kind: "info" | "error" }>
   >({});
-  const [remediatingFindingId, setRemediatingFindingId] = useState<string | null>(null);
+  const [remediatingFindingIds, setRemediatingFindingIds] = useState<Set<string>>(() => new Set());
   const [remediationNote, setRemediationNote] = useState<
     Record<string, { message: string; kind: "info" | "error" }>
   >({});
@@ -121,7 +126,7 @@ export default function ScanDetailPage() {
   }
 
   async function handleValidate(findingId: string) {
-    setValidatingFindingId(findingId);
+    setValidatingFindingIds((prev) => new Set(prev).add(findingId));
     setValidationNote((prev) => {
       const next = { ...prev };
       delete next[findingId];
@@ -142,12 +147,16 @@ export default function ScanDetailPage() {
       const message = err instanceof Error ? err.message : "Validation failed.";
       setValidationNote((prev) => ({ ...prev, [findingId]: { message, kind } }));
     } finally {
-      setValidatingFindingId(null);
+      setValidatingFindingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(findingId);
+        return next;
+      });
     }
   }
 
   async function handleRemediate(findingId: string) {
-    setRemediatingFindingId(findingId);
+    setRemediatingFindingIds((prev) => new Set(prev).add(findingId));
     setRemediationNote((prev) => {
       const next = { ...prev };
       delete next[findingId];
@@ -168,7 +177,11 @@ export default function ScanDetailPage() {
       const message = err instanceof Error ? err.message : "Remediation failed.";
       setRemediationNote((prev) => ({ ...prev, [findingId]: { message, kind } }));
     } finally {
-      setRemediatingFindingId(null);
+      setRemediatingFindingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(findingId);
+        return next;
+      });
     }
   }
 
@@ -722,7 +735,7 @@ export default function ScanDetailPage() {
                                                     event.stopPropagation();
                                                     void handleValidate(finding.id);
                                                   }}
-                                                  disabled={validatingFindingId === finding.id}
+                                                  disabled={validatingFindingIds.has(finding.id)}
                                                   className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
                                                     detail.evidence.some(
                                                       (e) => e.source_type === "llm_reasoning",
@@ -731,7 +744,7 @@ export default function ScanDetailPage() {
                                                       : "bg-cta text-accent-foreground hover:opacity-90"
                                                   }`}
                                                 >
-                                                  {validatingFindingId === finding.id ? (
+                                                  {validatingFindingIds.has(finding.id) ? (
                                                     <>
                                                       <motion.span
                                                         className="h-2.5 w-2.5 rounded-full border-[1.5px] border-current border-t-transparent"
@@ -758,7 +771,7 @@ export default function ScanDetailPage() {
                                                     event.stopPropagation();
                                                     void handleRemediate(finding.id);
                                                   }}
-                                                  disabled={remediatingFindingId === finding.id}
+                                                  disabled={remediatingFindingIds.has(finding.id)}
                                                   className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
                                                     detail.evidence.some(
                                                       (e) => e.source_type === "llm_remediation",
@@ -767,7 +780,7 @@ export default function ScanDetailPage() {
                                                       : "bg-cta text-accent-foreground hover:opacity-90"
                                                   }`}
                                                 >
-                                                  {remediatingFindingId === finding.id ? (
+                                                  {remediatingFindingIds.has(finding.id) ? (
                                                     <>
                                                       <motion.span
                                                         className="h-2.5 w-2.5 rounded-full border-[1.5px] border-current border-t-transparent"

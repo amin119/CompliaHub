@@ -265,7 +265,13 @@ def test_locate_fix_target_clamps_window_to_file_bounds(monkeypatch):
 
 
 def test_persist_remediation_writes_llm_remediation_evidence_with_expected_metadata():
-    finding = _make_finding()
+    # An explicit id: `_make_finding()`'s bare `Finding(...)` object is never
+    # flushed to a real DB in this fake-session test, so its `id` column's
+    # Python-side default only applies at INSERT time — without this, both
+    # sides of the `finding_id == finding.id` assertion below would silently
+    # be `None`, making it vacuously true regardless of whether
+    # `persist_remediation` actually links the two rows correctly.
+    finding = _make_finding(id=uuid.uuid4())
     suggestion = _make_suggestion()
     fix_target = _make_fix_target(finding)
     db = _FakeDBSession()

@@ -71,6 +71,11 @@ class Settings(BaseSettings):
     # suggestion is a different task shape (structured diff-relevant
     # output) even though today's default model is the same.
     gemini_remediation_model: str = "gemini-3.1-flash-lite"
+    # Platform Phase 7 (Evaluation Harness): the LLM-judge's own setting —
+    # scoring faithfulness/relevance/precision/recall is yet another
+    # distinct task shape from every model above, even sharing today's
+    # default.
+    gemini_eval_model: str = "gemini-3.1-flash-lite"
 
 
 @lru_cache

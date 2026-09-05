@@ -66,8 +66,14 @@ def test_replaced_final_line_without_trailing_newline_stays_on_its_own_line():
     following "+" line runs directly into it with no separating newline
     once the diff is joined into one string, corrupting the diff.
     """
-    original = "import hashlib\n\ndef hash_password(password):\n    return hashlib.md5(password.encode()).hexdigest()"
-    suggested = "import hashlib\nimport os\n\ndef hash_password(password):\n    return hashlib.sha256(password.encode()).hexdigest()"
+    original = (
+        "import hashlib\n\ndef hash_password(password):\n"
+        "    return hashlib.md5(password.encode()).hexdigest()"
+    )
+    suggested = (
+        "import hashlib\nimport os\n\ndef hash_password(password):\n"
+        "    return hashlib.sha256(password.encode()).hexdigest()"
+    )
     diff = build_unified_diff("app/auth.py", 1, original, suggested)
 
     assert "hexdigest()+" not in diff

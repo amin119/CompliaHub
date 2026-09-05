@@ -328,6 +328,19 @@ def remediate_finding_endpoint(
         original_window_text=fix_target.window_text,
         suggested_code=suggestion.suggested_code,
     )
+    if not diff_text.strip():
+        # The model's suggested_code was identical to the original window —
+        # build_unified_diff correctly produces an empty diff for a no-op
+        # change, but persisting that as a "successful" llm_remediation
+        # Evidence row would hand the user a suggestion with nothing
+        # actionable in it. A retry is a fresh LLM call and may well
+        # produce a real change, so this is framed the same as a transient
+        # failure (503), not a structural 422 — nothing about this finding
+        # makes a fix permanently impossible.
+        raise HTTPException(
+            status_code=503,
+            detail="AI remediation produced no actionable change, try again shortly.",
+        )
 
     settings = get_settings()
     return finding_remediation.persist_remediation(

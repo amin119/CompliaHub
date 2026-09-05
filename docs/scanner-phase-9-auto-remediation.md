@@ -82,10 +82,12 @@ in this stack), and the explanation text below it.
 
 Live verification is this project's standing discipline precisely because
 mocked tests can pass while real infrastructure/data breaks something —
-this phase reconfirmed it. All 7 `test_diff_generation.py` unit tests used
-fixture text ending in `\n`, so none exercised the case where the flagged
-line is the **last line of the file** — which is exactly what the live
-end-to-end sample repo hit (a 4-line file, finding on line 4).
+this phase reconfirmed it. All 7 `test_diff_generation.py` unit tests
+written before this bug was found used fixture text ending in `\n`, so none
+exercised the case where the flagged line is the **last line of the
+file** — which is exactly what the live end-to-end sample repo hit (a
+4-line file, finding on line 4). An 8th regression test reproducing this
+exact case was added after the fix (see the Verification section below).
 
 `locate_fix_target`'s real window text is built via
 `"\n".join(lines[window_start-1:window_end])` (from `str.splitlines()`
@@ -96,7 +98,7 @@ diff's last `"-"` line with no line terminator, and joining all diff lines
 via `"".join(...)` ran it directly into the following `"+"` line with zero
 separator — producing a genuinely corrupted diff:
 
-```
+```diff
 -    return hashlib.md5(password.encode()).hexdigest()+    return hashlib.pbkdf2_hmac(...)
 ```
 

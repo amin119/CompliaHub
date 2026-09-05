@@ -59,6 +59,15 @@ class QueryResponse(BaseModel):
     citations: list[Citation]
     conversation_id: str | None = None
     graph_evidence: GraphEvidence = Field(default_factory=GraphEvidence)
+    # Phase 7: `query_classifier.classify_query`'s routing decision, this
+    # turn's wall-clock latency, and (agent-classified turns only) how many
+    # retrieve/critique/rewrite rounds it took — all three were previously
+    # computed internally and silently discarded before reaching this
+    # response (see docs/phase-7-evaluation.md). Additive and optional so
+    # existing frontend consumers built against the old shape don't break.
+    category: str | None = None
+    latency_ms: float | None = None
+    iteration_count: int | None = None
 
 
 class ConversationTurn(BaseModel):
