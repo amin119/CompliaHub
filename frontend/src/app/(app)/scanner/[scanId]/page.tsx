@@ -9,8 +9,10 @@ import {
   getScanFiles,
   getScanFinding,
   getScanFindings,
+  remediateFinding,
   submitFindingReview,
   validateFinding,
+  RemediateFindingError,
   ValidateFindingError,
   type Finding,
   type FindingDetail,
@@ -83,8 +85,17 @@ export default function ScanDetailPage() {
   const [activeTab, setActiveTab] = useState<"files" | "findings">("files");
   const [expandedFindingId, setExpandedFindingId] = useState<string | null>(null);
   const [findingDetails, setFindingDetails] = useState<Record<string, FindingDetail>>({});
-  const [validatingFindingId, setValidatingFindingId] = useState<string | null>(null);
+  // A Set, not a single id: a scalar would let a second concurrent
+  // validate/remediate request on a *different* finding clear the first
+  // finding's loading state prematurely in its own `finally` block,
+  // letting a repeated click fire another real LLM call and persist
+  // another Evidence row before the first one even finished.
+  const [validatingFindingIds, setValidatingFindingIds] = useState<Set<string>>(() => new Set());
   const [validationNote, setValidationNote] = useState<
+    Record<string, { message: string; kind: "info" | "error" }>
+  >({});
+  const [remediatingFindingIds, setRemediatingFindingIds] = useState<Set<string>>(() => new Set());
+  const [remediationNote, setRemediationNote] = useState<
     Record<string, { message: string; kind: "info" | "error" }>
   >({});
   const [reviewForms, setReviewForms] = useState<
@@ -115,7 +126,7 @@ export default function ScanDetailPage() {
   }
 
   async function handleValidate(findingId: string) {
-    setValidatingFindingId(findingId);
+    setValidatingFindingIds((prev) => new Set(prev).add(findingId));
     setValidationNote((prev) => {
       const next = { ...prev };
       delete next[findingId];
@@ -136,7 +147,41 @@ export default function ScanDetailPage() {
       const message = err instanceof Error ? err.message : "Validation failed.";
       setValidationNote((prev) => ({ ...prev, [findingId]: { message, kind } }));
     } finally {
-      setValidatingFindingId(null);
+      setValidatingFindingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(findingId);
+        return next;
+      });
+    }
+  }
+
+  async function handleRemediate(findingId: string) {
+    setRemediatingFindingIds((prev) => new Set(prev).add(findingId));
+    setRemediationNote((prev) => {
+      const next = { ...prev };
+      delete next[findingId];
+      return next;
+    });
+    try {
+      const evidence = await remediateFinding(scanId, findingId);
+      setFindingDetails((prev) => {
+        const detail = prev[findingId];
+        if (!detail) return prev;
+        return { ...prev, [findingId]: { ...detail, evidence: [evidence, ...detail.evidence] } };
+      });
+    } catch (err) {
+      // 422 ("no fixable code location") is a normal, expected state for
+      // organizational/governance findings — styled as an informational
+      // note rather than an error; anything else is a real error.
+      const kind = err instanceof RemediateFindingError && err.status === 422 ? "info" : "error";
+      const message = err instanceof Error ? err.message : "Remediation failed.";
+      setRemediationNote((prev) => ({ ...prev, [findingId]: { message, kind } }));
+    } finally {
+      setRemediatingFindingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(findingId);
+        return next;
+      });
     }
   }
 
@@ -690,7 +735,7 @@ export default function ScanDetailPage() {
                                                     event.stopPropagation();
                                                     void handleValidate(finding.id);
                                                   }}
-                                                  disabled={validatingFindingId === finding.id}
+                                                  disabled={validatingFindingIds.has(finding.id)}
                                                   className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
                                                     detail.evidence.some(
                                                       (e) => e.source_type === "llm_reasoning",
@@ -699,7 +744,7 @@ export default function ScanDetailPage() {
                                                       : "bg-cta text-accent-foreground hover:opacity-90"
                                                   }`}
                                                 >
-                                                  {validatingFindingId === finding.id ? (
+                                                  {validatingFindingIds.has(finding.id) ? (
                                                     <>
                                                       <motion.span
                                                         className="h-2.5 w-2.5 rounded-full border-[1.5px] border-current border-t-transparent"
@@ -720,6 +765,42 @@ export default function ScanDetailPage() {
                                                     "Validate with AI"
                                                   )}
                                                 </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    void handleRemediate(finding.id);
+                                                  }}
+                                                  disabled={remediatingFindingIds.has(finding.id)}
+                                                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                                                    detail.evidence.some(
+                                                      (e) => e.source_type === "llm_remediation",
+                                                    )
+                                                      ? "border border-surface-border text-muted hover:text-accent"
+                                                      : "bg-cta text-accent-foreground hover:opacity-90"
+                                                  }`}
+                                                >
+                                                  {remediatingFindingIds.has(finding.id) ? (
+                                                    <>
+                                                      <motion.span
+                                                        className="h-2.5 w-2.5 rounded-full border-[1.5px] border-current border-t-transparent"
+                                                        animate={{ rotate: 360 }}
+                                                        transition={{
+                                                          duration: 0.7,
+                                                          repeat: Infinity,
+                                                          ease: "linear",
+                                                        }}
+                                                      />
+                                                      Suggesting…
+                                                    </>
+                                                  ) : detail.evidence.some(
+                                                      (e) => e.source_type === "llm_remediation",
+                                                    ) ? (
+                                                    "Suggest another fix"
+                                                  ) : (
+                                                    "Suggest a fix"
+                                                  )}
+                                                </button>
                                               </div>
                                               {validationNote[finding.id] && (
                                                 <p
@@ -730,6 +811,17 @@ export default function ScanDetailPage() {
                                                   }
                                                 >
                                                   {validationNote[finding.id].message}
+                                                </p>
+                                              )}
+                                              {remediationNote[finding.id] && (
+                                                <p
+                                                  className={
+                                                    remediationNote[finding.id].kind === "info"
+                                                      ? "text-muted"
+                                                      : "text-red-600 dark:text-red-400"
+                                                  }
+                                                >
+                                                  {remediationNote[finding.id].message}
                                                 </p>
                                               )}
                                               <div>
@@ -755,6 +847,10 @@ export default function ScanDetailPage() {
                                                     {detail.evidence.map((evidence) => {
                                                       const isAiReview =
                                                         evidence.source_type === "llm_reasoning";
+                                                      const isAiRemediation =
+                                                        evidence.source_type === "llm_remediation";
+                                                      const isAiGenerated =
+                                                        isAiReview || isAiRemediation;
                                                       const metadata = evidence.evidence_metadata as
                                                         | {
                                                             finding_assessment?: string;
@@ -769,7 +865,7 @@ export default function ScanDetailPage() {
                                                         <div
                                                           key={evidence.id}
                                                           className={`rounded-xl border p-2.5 ${
-                                                            isAiReview
+                                                            isAiGenerated
                                                               ? "border-purple/30 bg-purple/5"
                                                               : "border-surface-border bg-surface"
                                                           }`}
@@ -791,14 +887,16 @@ export default function ScanDetailPage() {
                                                             {evidence.source_type && (
                                                               <span
                                                                 className={`rounded-full px-1.5 py-0 ${
-                                                                  isAiReview
+                                                                  isAiGenerated
                                                                     ? "bg-purple/15 text-purple"
                                                                     : "bg-accent-soft text-accent"
                                                                 }`}
                                                               >
                                                                 {isAiReview
                                                                   ? "AI review"
-                                                                  : evidence.source_type}
+                                                                  : isAiRemediation
+                                                                    ? "AI fix suggestion"
+                                                                    : evidence.source_type}
                                                               </span>
                                                             )}
                                                           </div>
@@ -820,16 +918,48 @@ export default function ScanDetailPage() {
                                                               )}
                                                             </div>
                                                           )}
-                                                          {evidence.snippet && (
-                                                            <pre className="themed-scroll mt-1.5 overflow-x-auto rounded-lg bg-background p-2 font-mono text-[11px] text-foreground">
-                                                              {evidence.snippet}
+                                                          {isAiRemediation && evidence.snippet ? (
+                                                            <pre className="themed-scroll mt-1.5 overflow-x-auto rounded-lg bg-background p-2 font-mono text-[11px]">
+                                                              {evidence.snippet
+                                                                .split("\n")
+                                                                .map((line, i) => (
+                                                                  <div
+                                                                    key={i}
+                                                                    className={
+                                                                      line.startsWith("+") &&
+                                                                      !line.startsWith("+++")
+                                                                        ? "bg-green-500/10 text-green-700 dark:text-green-400"
+                                                                        : line.startsWith("-") &&
+                                                                            !line.startsWith("---")
+                                                                          ? "bg-red-500/10 text-red-700 dark:text-red-400"
+                                                                          : line.startsWith("@@")
+                                                                            ? "text-purple"
+                                                                            : "text-foreground"
+                                                                    }
+                                                                  >
+                                                                    {line || " "}
+                                                                  </div>
+                                                                ))}
                                                             </pre>
+                                                          ) : (
+                                                            evidence.snippet && (
+                                                              <pre className="themed-scroll mt-1.5 overflow-x-auto rounded-lg bg-background p-2 font-mono text-[11px] text-foreground">
+                                                                {evidence.snippet}
+                                                              </pre>
+                                                            )
                                                           )}
-                                                          {!evidence.snippet && evidence.description && (
-                                                            <p className="mt-1 text-foreground">
+                                                          {isAiRemediation && evidence.description && (
+                                                            <p className="mt-1.5 text-foreground">
                                                               {evidence.description}
                                                             </p>
                                                           )}
+                                                          {!isAiRemediation &&
+                                                            !evidence.snippet &&
+                                                            evidence.description && (
+                                                              <p className="mt-1 text-foreground">
+                                                                {evidence.description}
+                                                              </p>
+                                                            )}
                                                           {isAiReview &&
                                                             metadata?.retrieved_citations &&
                                                             metadata.retrieved_citations.length > 0 && (

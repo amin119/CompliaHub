@@ -15,7 +15,14 @@ from app.schemas.query import (
     QueryRequest,
     QueryResponse,
 )
-from app.services import agent, answer_generation, graph_store, query_classifier, retrieval
+from app.services import (
+    agent,
+    answer_generation,
+    graph_store,
+    query_classifier,
+    query_orchestration,
+    retrieval,
+)
 from app.services import streaming_events as events
 from app.services.query_classifier import QueryCategory
 
@@ -47,68 +54,16 @@ def query(request: QueryRequest, db: Session = Depends(get_db)) -> QueryResponse
     retrieval strategy that can actually answer it, instead of Phase 4's
     fixed "always do vector + local + global search" pipeline — see
     docs/phase-5-agentic-loop.md for the reasoning.
+
+    Phase 7: the actual classify-then-route logic now lives in
+    `query_orchestration.run_query`, so this route and the evaluation
+    harness run the exact same pipeline — this just discards the
+    eval-only `context_texts`/`token_usage` the harness needs.
     """
-    classification = query_classifier.classify_query(request.question)
-
-    if classification.category == QueryCategory.OFF_TOPIC:
-        return QueryResponse(
-            answer=classification.reply or _OFF_TOPIC_FALLBACK,
-            citations=[],
-            conversation_id=request.conversation_id or str(uuid.uuid4()),
-        )
-
-    if classification.category == QueryCategory.AGENT:
-        driver = graph_store.get_neo4j_driver()
-        try:
-            return agent.run_agent(
-                request.question,
-                db,
-                driver,
-                agent_checkpointer,
-                conversation_id=request.conversation_id,
-            )
-        finally:
-            driver.close()
-
-    # vector/graph questions don't go through the agent, so they don't
-    # build or read conversation memory (see docs/phase-5-agentic-loop.md)
-    # — still echo/generate a conversation_id for a consistent API contract,
-    # even though only an `agent`-classified turn ever does anything with it.
-    conversation_id = request.conversation_id or str(uuid.uuid4())
-
-    context_chunks, query_vector = retrieval.vector_search(db, request.question, request.top_k)
-    if not context_chunks:
-        return QueryResponse(
-            answer="No relevant information found.", citations=[], conversation_id=conversation_id
-        )
-
-    if classification.category == QueryCategory.VECTOR:
-        answer = answer_generation.generate_answer(request.question, context_chunks)
-        _, _, citations = retrieval.render_evidence(db, context_chunks, [], [])
-        return QueryResponse(answer=answer, citations=citations, conversation_id=conversation_id)
-
-    # QueryCategory.GRAPH: vector search + Phase 4 Part 1 local search
-    # (relational questions about specific named things) — global/thematic
-    # search is reserved for the agent path, since deciding *whether* a
-    # thematic summary is even relevant is exactly the judgment call this
-    # baseline defers to Phase 5.
-    driver = graph_store.get_neo4j_driver()
-    try:
-        graph_relations = retrieval.local_search_facts(driver, context_chunks)
-    finally:
-        driver.close()
-
-    graph_facts, _, citations = retrieval.render_evidence(db, context_chunks, graph_relations, [])
-    graph_evidence = retrieval.build_graph_evidence(graph_relations)
-    answer = answer_generation.generate_answer(
-        request.question, context_chunks, graph_facts=graph_facts
+    result = query_orchestration.run_query(
+        request.question, db, conversation_id=request.conversation_id, top_k=request.top_k
     )
-    return QueryResponse(
-        answer=answer,
-        citations=citations,
-        conversation_id=conversation_id,
-        graph_evidence=graph_evidence,
-    )
+    return result.response
 
 
 def _sse_encode(payloads):

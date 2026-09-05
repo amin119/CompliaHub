@@ -8,6 +8,7 @@ from google.genai import errors, types
 from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import get_settings
+from app.services import token_tracking
 
 _SYSTEM_PROMPT = (
     "You are routing a question to the cheapest retrieval strategy that can "
@@ -132,6 +133,7 @@ class _GeminiClassifierClient:
         except errors.ServerError as exc:
             raise ClassificationRateLimited(str(exc)) from exc
 
+        token_tracking.record(response.usage_metadata)
         return QueryClassification.model_validate_json(response.text)
 
 

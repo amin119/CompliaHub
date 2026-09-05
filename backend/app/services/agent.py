@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.document import Chunk
 from app.schemas.query import Citation, QueryResponse
-from app.services import answer_generation, retrieval
+from app.services import answer_generation, retrieval, token_tracking
 from app.services import streaming_events as events
 from app.services.graph_store import CommunityWithEmbedding, ProvenancedRelationEdge
 
@@ -124,6 +124,7 @@ def _call_gemini_structured(api_key: str, model: str, system_prompt: str, conten
     # Re-validate ourselves rather than trusting response.parsed — same
     # reasoning as every other Gemini adapter in this project: .parsed may
     # be built through a path that skips a custom validator.
+    token_tracking.record(response.usage_metadata)
     return schema.model_validate_json(response.text)
 
 
@@ -369,6 +370,10 @@ def run_agent(
         citations=final_state["citations"],
         conversation_id=thread_id,
         graph_evidence=graph_evidence,
+        # Phase 7: real, already-tracked per-turn state (see AgentState's
+        # docstring) that was previously read into `final_state` and then
+        # simply never carried into the response.
+        iteration_count=final_state["iteration"],
     )
 
 

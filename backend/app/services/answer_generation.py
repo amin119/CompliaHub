@@ -5,6 +5,7 @@ from google.genai import types
 
 from app.core.config import get_settings
 from app.models.document import Chunk
+from app.services import token_tracking
 
 _SYSTEM_PROMPT = (
     "You are a compliance assistant answering questions about ISO/GDPR "
@@ -56,6 +57,7 @@ class _GeminiAnswerClient:
                 system_instruction=system_prompt, max_output_tokens=max_tokens
             ),
         )
+        token_tracking.record(response.usage_metadata)
         return response.text or ""
 
     def stream_completion(
@@ -69,9 +71,16 @@ class _GeminiAnswerClient:
                 system_instruction=system_prompt, max_output_tokens=max_tokens
             ),
         )
+        # Gemini's streamed `usage_metadata` is cumulative per chunk, not
+        # incremental — only the last chunk's value is recorded, otherwise
+        # every earlier chunk's counts would be double(-triple-...)-counted.
+        last_usage_metadata = None
         for chunk in stream:
+            if chunk.usage_metadata is not None:
+                last_usage_metadata = chunk.usage_metadata
             if chunk.text:
                 yield chunk.text
+        token_tracking.record(last_usage_metadata)
 
 
 def get_answer_client() -> AnswerClient:

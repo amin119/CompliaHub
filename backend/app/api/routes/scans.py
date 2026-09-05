@@ -28,6 +28,7 @@ from app.schemas.scan import (
 )
 from app.services import (
     compliance_retrieval,
+    finding_remediation,
     finding_review,
     finding_validation,
     scan_storage,
@@ -287,6 +288,69 @@ def validate_findings_bulk(
             BulkValidationResult(finding_id=finding_id, ok=True, evidence=evidence, error=None)
         )
     return results
+
+
+@router.post("/{scan_id}/findings/{finding_id}/remediate", response_model=EvidenceResponse)
+def remediate_finding_endpoint(
+    scan_id: uuid.UUID, finding_id: uuid.UUID, db: Session = Depends(get_db)
+):
+    """Phase 9 (final): suggests a code fix for one finding's flagged
+    location. Synchronous, in-request, no Celery — a single LLM call plus
+    one MinIO GET, the same order of magnitude as Phase 6/7/8's own reads/
+    writes. No bulk variant: unlike bulk-validate, remediation is
+    fundamentally single-finding-at-a-time (a human reads one specific
+    issue, requests a fix, then manually reads/applies/adapts it) — a
+    disclosed scope cut, not an oversight.
+    """
+    finding = db.scalar(
+        select(Finding).where(Finding.id == finding_id, Finding.scan_id == scan_id)
+    )
+    if finding is None:
+        raise HTTPException(status_code=404, detail="finding not found")
+
+    client = storage.get_minio_client()
+    try:
+        fix_target = finding_remediation.locate_fix_target(db, client, finding)
+    except finding_remediation.NoLocatableEvidenceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    try:
+        suggestion = finding_remediation.generate_remediation(finding, fix_target)
+    except (finding_remediation.RemediationRateLimited, ValidationError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="AI remediation is temporarily unavailable, try again shortly.",
+        ) from exc
+
+    diff_text = finding_remediation.build_unified_diff(
+        file_path=fix_target.evidence.file_path,
+        window_start_line=fix_target.window_start_line,
+        original_window_text=fix_target.window_text,
+        suggested_code=suggestion.suggested_code,
+    )
+    if not diff_text.strip():
+        # The model's suggested_code was identical to the original window —
+        # build_unified_diff correctly produces an empty diff for a no-op
+        # change, but persisting that as a "successful" llm_remediation
+        # Evidence row would hand the user a suggestion with nothing
+        # actionable in it. A retry is a fresh LLM call and may well
+        # produce a real change, so this is framed the same as a transient
+        # failure (503), not a structural 422 — nothing about this finding
+        # makes a fix permanently impossible.
+        raise HTTPException(
+            status_code=503,
+            detail="AI remediation produced no actionable change, try again shortly.",
+        )
+
+    settings = get_settings()
+    return finding_remediation.persist_remediation(
+        db,
+        finding,
+        suggestion,
+        fix_target,
+        diff_text,
+        model=settings.gemini_remediation_model,
+    )
 
 
 @router.post(

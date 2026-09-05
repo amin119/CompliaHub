@@ -47,6 +47,16 @@ _pool = ConnectionPool(
 
 checkpointer = PostgresSaver(_pool, serde=_serde)
 
+# Tracks whether *this process* has ever called `open_checkpointer()` —
+# `psycopg_pool.ConnectionPool` can never be reopened once closed
+# (`PoolClosed`, confirmed live in Phase 5 Part 2), so `ensure_open()` below
+# must never blindly retry opening a pool some other code path already
+# closed. This is a one-way latch, not a "is the pool currently usable"
+# check: after `close_checkpointer()` runs, `_opened` stays `True` (opening
+# again would crash) and any later attempt to actually use the checkpointer
+# fails with its own, more localized error at the point of use, not here.
+_opened = False
+
 
 def open_checkpointer() -> None:
     """Opens the pool and creates LangGraph's own checkpoint tables if they
@@ -56,8 +66,24 @@ def open_checkpointer() -> None:
     (`alembic/versions/`), this is purely LangGraph's separate,
     self-managed checkpoint schema.
     """
+    global _opened
     _pool.open()
     checkpointer.setup()
+    _opened = True
+
+
+def ensure_open() -> None:
+    """For callers that need the checkpointer usable but don't themselves
+    own its lifecycle the way `app.main`'s lifespan (or a test's own
+    open/close fixture) does — e.g. Phase 7's eval harness Celery task,
+    which runs in a worker process with no FastAPI lifespan of its own and
+    must open the pool exactly once, lazily, before its first real use. A
+    no-op if `open_checkpointer()` already ran anywhere in this process
+    (including by `app.main`'s lifespan itself, where this is always a
+    no-op — the pool is already open by the time any request arrives).
+    """
+    if not _opened:
+        open_checkpointer()
 
 
 def close_checkpointer() -> None:

@@ -1,6 +1,21 @@
-from celery import Celery
+import truststore
 
-from app.core.config import get_settings
+# Must run before any other import creates an SSL context — same fix
+# `app/main.py` applies, for the same reason: outbound HTTPS from Python
+# running natively on this Windows host fails TLS cert verification (some
+# local network TLS interception isn't in certifi's bundled CA list).
+# Normally moot for Celery workers (they run in Linux containers per
+# docker-compose.yml, where this never triggers — harmless no-op there,
+# same as `app/main.py`'s own comment notes), but this project's own
+# established fallback for a blocked Docker rebuild is running a worker
+# directly on the host venv (see docs/scanner-phase-1-foundation.md and
+# docs/phase-7-evaluation.md) — caught live doing exactly that for Phase 7's
+# eval harness task.
+truststore.inject_into_ssl()
+
+from celery import Celery  # noqa: E402
+
+from app.core.config import get_settings  # noqa: E402
 
 settings = get_settings()
 
@@ -63,5 +78,18 @@ celery_app.conf.update(
         # to the default "celery" queue (the exact bug Phase 2 hit — see
         # its as-built doc).
         "scanner.run_iso27001_analyzers": {"queue": "scanner"},
+        # Platform Phase 7 (Evaluation Harness) — the only new task this
+        # phase adds. Its own "eval" queue name (not folded into "vector")
+        # even though it currently runs on worker-vector below: a run can
+        # take many minutes (30-50 questions x up to 4 judge calls each),
+        # and must not block real user-facing document-embedding tasks on
+        # the same worker process while it executes. NOTE: adding this
+        # entry requires restarting BOTH the FastAPI process AND the
+        # worker consuming "eval" — same reasoning as every other queue
+        # note above (a chain()/delay() dispatch uses the process's own
+        # in-memory routing config), though this task has no chain
+        # callback of its own, so only the initial dispatch is at risk of
+        # misrouting, not a mid-chain stage.
+        "eval.run_evaluation": {"queue": "eval"},
     },
 )

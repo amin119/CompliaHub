@@ -18,6 +18,7 @@ from app.api.routes import (  # noqa: E402
     communities,
     compliance,
     documents,
+    evaluation,
     extraction,
     health,
     query,
@@ -59,3 +60,4 @@ app.include_router(extraction.router)
 app.include_router(communities.router)
 app.include_router(scans.router)
 app.include_router(compliance.router)
+app.include_router(evaluation.router)
