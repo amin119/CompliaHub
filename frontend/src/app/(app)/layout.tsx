@@ -16,7 +16,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <nav className="sticky top-0 z-20 flex items-center gap-6 border-b border-surface-border/80 bg-background/80 px-4 py-3 backdrop-blur-md sm:px-6">
+      <nav className="sticky top-0 z-20 flex items-center gap-6 border-b border-surface-border/80 bg-background/80 px-4 py-3 backdrop-blur-md sm:px-6 print:hidden">
         <Link href="/" className="flex items-center gap-2 text-foreground">
           <Logo className="h-6 w-6 text-accent" />
           <span className="text-sm font-semibold tracking-tight">CompliaHub</span>

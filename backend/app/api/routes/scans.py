@@ -1,10 +1,11 @@
 import uuid
+from datetime import datetime, timezone
 
 from celery import chain
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import ValidationError
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.core.db import get_db
@@ -17,14 +18,20 @@ from app.schemas.scan import (
     FindingResponse,
     FindingReviewRequest,
     FindingReviewResponse,
+    FindingStatusCount,
+    FrameworkCount,
     RepositoryFileResponse,
+    ReviewCoverage,
     ScanResponse,
+    ScanSummaryResponse,
+    SeverityCount,
 )
 from app.services import (
     compliance_retrieval,
     finding_review,
     finding_validation,
     scan_storage,
+    scan_summary,
     storage,
 )
 from app.services.hashing import sha256_bytes
@@ -159,6 +166,59 @@ def get_scan_finding(scan_id: uuid.UUID, finding_id: uuid.UUID, db: Session = De
     if finding is None:
         raise HTTPException(status_code=404, detail="finding not found")
     return finding
+
+
+@router.get("/{scan_id}/summary", response_model=ScanSummaryResponse)
+def get_scan_summary(scan_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Phase 8: a per-scan aggregate for the report page — pure read, no
+    migration needed. Deliberately never reduces to a single score/
+    percentage anywhere in the response; see `ScanSummaryResponse`'s
+    own docstring.
+    """
+    scan = db.get(Scan, scan_id)
+    if scan is None:
+        raise HTTPException(status_code=404, detail="scan not found")
+
+    findings = db.scalars(
+        select(Finding)
+        .where(Finding.scan_id == scan_id)
+        .options(selectinload(Finding.reviews))
+    ).all()
+
+    summary = scan_summary.build_scan_summary(findings)
+    return ScanSummaryResponse(
+        scan_id=scan.id,
+        original_filename=scan.original_filename,
+        repository_name=scan.repository_name,
+        detected_languages=scan.detected_languages,
+        detected_frameworks=scan.detected_frameworks,
+        file_count=scan.file_count,
+        total_size_bytes=scan.total_size_bytes,
+        status=scan.status,
+        findings_status=scan.findings_status,
+        privacy_status=scan.privacy_status,
+        ai_status=scan.ai_status,
+        iso27001_status=scan.iso27001_status,
+        generated_at=datetime.now(timezone.utc),
+        total_findings=summary.total_findings,
+        severity_counts=[
+            SeverityCount(severity=s, count=c) for s, c in summary.severity_counts
+        ],
+        status_counts=[
+            FindingStatusCount(status=s, count=c) for s, c in summary.status_counts
+        ],
+        framework_counts=[
+            FrameworkCount(framework=fw, count=c) for fw, c in summary.framework_counts
+        ],
+        review_coverage=ReviewCoverage(
+            total_findings=summary.total_findings,
+            reviewed_findings=summary.reviewed_findings,
+            unreviewed_findings=summary.unreviewed_findings,
+            requires_human_review_count=summary.requires_human_review_count,
+            requires_human_review_unreviewed_count=summary.requires_human_review_unreviewed_count,
+            total_reviews=summary.total_reviews,
+        ),
+    )
 
 
 def _validate_one_finding(db: Session, scan_id: uuid.UUID, finding_id: uuid.UUID):
