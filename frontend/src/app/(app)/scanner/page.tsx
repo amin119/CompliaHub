@@ -7,6 +7,7 @@ import { uploadScan, getScan, listScans, type ScanStatus } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
 import UploadDropzone from "@/components/UploadDropzone";
 import Skeleton from "@/components/Skeleton";
+import { CHIP_BASE } from "@/lib/ui";
 
 const TERMINAL_STATUSES = ["ready", "failed"];
 const POLL_INTERVAL_MS = 3000;
@@ -99,10 +100,10 @@ export default function ScannerPage() {
     <div className="flex flex-1 flex-col items-center bg-background">
       <div className="flex w-full max-w-2xl flex-1 flex-col px-4 py-6 sm:py-8">
         <header className="mb-6">
-          <h1 className="font-display text-2xl font-normal tracking-tight text-foreground">
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
             Scanner
           </h1>
-          <p className="text-sm text-muted">
+          <p className="mt-1 text-sm text-muted">
             Upload a repository (as a .zip) to inventory its languages, frameworks, and
             files — the foundation technical evidence for compliance analysis is drawn from.
             This is an evidence inventory, not a compliance verdict: nothing here claims your
@@ -162,7 +163,7 @@ export default function ScannerPage() {
                 >
                   <Link
                     href={`/scanner/${scan.id}`}
-                    className="card-interactive block rounded-2xl border border-surface-border bg-surface p-4 hover:border-accent/40"
+                    className="card-interactive block rounded-2xl border border-surface-border bg-surface-raised p-4 hover:border-accent/40"
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
@@ -177,11 +178,11 @@ export default function ScannerPage() {
                       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-surface-border pt-3 text-xs text-muted">
                         <span>{scan.file_count} files</span>
                         <span>{formatSize(scan.total_size_bytes)}</span>
+                        {/* Neutral chips, not accent-tinted: inside a card
+                            that's entirely a link, accent has to keep meaning
+                            "this is the thing you click". */}
                         {scan.detected_languages.slice(0, 4).map((language) => (
-                          <span
-                            key={language}
-                            className="rounded-full bg-accent-soft px-2 py-0.5 text-accent"
-                          >
+                          <span key={language} className={CHIP_BASE}>
                             {language}
                           </span>
                         ))}

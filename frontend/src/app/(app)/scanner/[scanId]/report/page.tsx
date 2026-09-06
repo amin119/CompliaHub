@@ -16,6 +16,7 @@ import FindingStatusBadge from "@/components/FindingStatusBadge";
 import ComplianceDisclaimerBanner from "@/components/ComplianceDisclaimerBanner";
 import ReportDisclaimerBanner from "@/components/ReportDisclaimerBanner";
 import Skeleton from "@/components/Skeleton";
+import { buttonClasses } from "@/lib/ui";
 
 const FINDING_ASSESSMENT_LABELS: Record<string, string> = {
   likely_true_positive: "Likely true positive",
@@ -128,18 +129,19 @@ export default function ScanReportPage() {
           <button
             type="button"
             onClick={handlePrint}
-            className="rounded-full bg-cta px-4 py-1.5 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90"
+            className={buttonClasses({ size: "sm" })}
           >
             Print / Save as PDF
           </button>
         </div>
 
         <header className="mb-4">
-          <h1 className="font-display text-2xl font-normal tracking-tight text-foreground">
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
             {summary.original_filename}
           </h1>
           <p className="mt-1 text-sm text-muted">
-            Compliance evidence report — generated {new Date(summary.generated_at).toLocaleString()}
+            Compliance evidence report, generated{" "}
+            {new Date(summary.generated_at).toLocaleString()}
           </p>
         </header>
 
@@ -168,7 +170,7 @@ export default function ScanReportPage() {
                   summary.detected_languages.map((language) => (
                     <span
                       key={language}
-                      className="rounded-full bg-accent-soft px-2.5 py-0.5 text-xs text-accent"
+                      className="rounded-full border border-surface-border px-2.5 py-0.5 text-xs text-foreground"
                     >
                       {language}
                     </span>
@@ -185,7 +187,7 @@ export default function ScanReportPage() {
                   summary.detected_frameworks.map((framework) => (
                     <span
                       key={framework}
-                      className="rounded-full bg-surface-blue px-2.5 py-0.5 text-xs text-foreground"
+                      className="rounded-full border border-surface-border px-2.5 py-0.5 text-xs text-foreground"
                     >
                       {framework}
                     </span>
@@ -237,7 +239,7 @@ export default function ScanReportPage() {
                     className="border-t border-surface-border first:border-0"
                   >
                     <td className="py-1.5 pr-2">
-                      <span className="rounded-full bg-surface-blue px-2.5 py-0.5 text-xs text-foreground">
+                      <span className="rounded-full border border-surface-border px-2.5 py-0.5 text-xs text-foreground">
                         {framework ?? "General"}
                       </span>
                     </td>
@@ -296,7 +298,7 @@ export default function ScanReportPage() {
                 <div className="flex flex-wrap items-center gap-1.5">
                   <SeverityBadge severity={finding.severity} />
                   <FindingStatusBadge status={finding.status} />
-                  <span className="rounded-full bg-surface-blue px-2.5 py-0.5 text-foreground">
+                  <span className="rounded-full border border-surface-border px-2.5 py-0.5 text-foreground">
                     {finding.framework ?? "General"}
                   </span>
                 </div>
@@ -333,7 +335,7 @@ export default function ScanReportPage() {
                             key={evidence.id}
                             className={`rounded-lg border p-2 ${
                               isAiReview
-                                ? "border-purple/30 bg-purple/5"
+                                ? "border-ai/30 bg-ai/5"
                                 : "border-surface-border bg-background"
                             }`}
                           >
@@ -348,7 +350,7 @@ export default function ScanReportPage() {
                                 <span
                                   className={`rounded-full px-1.5 py-0 ${
                                     isAiReview
-                                      ? "bg-purple/15 text-purple"
+                                      ? "bg-ai/15 text-ai"
                                       : "bg-accent-soft text-accent"
                                   }`}
                                 >

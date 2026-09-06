@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Poppins } from "next/font/google";
 import Script from "next/script";
+import MotionProvider from "@/components/MotionProvider";
 import "./globals.css";
 
 // One typeface pair for the whole product now — landing page and app
@@ -67,7 +68,9 @@ export default function RootLayout({
       <Script id="theme-init" strategy="beforeInteractive">
         {themeInitScript}
       </Script>
-      <body className="min-h-screen">{children}</body>
+      <body className="min-h-screen">
+        <MotionProvider>{children}</MotionProvider>
+      </body>
     </html>
   );
 }

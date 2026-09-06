@@ -102,14 +102,19 @@ export default function PipelineProgress({ stages }: { stages: PipelineStage[] }
                   scale: isActive ? 1.1 : 1,
                 }}
                 transition={{ duration: 0.2 }}
-                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 bg-background transition-colors duration-300 ${
+                // Each state carries its own background. A shared
+                // `bg-background` in the base string competed with the done
+                // state's `bg-accent` at equal specificity and won, which
+                // left the completed step's white checkmark drawn on the
+                // page's own white ground — invisible.
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-300 ${
                   isFailed
-                    ? "border-red-400 text-red-500"
+                    ? "border-red-400 bg-background text-red-500"
                     : isDone
-                      ? "border-accent bg-accent text-accent-foreground"
+                      ? "border-accent bg-accent text-accent-contrast"
                       : isActive
-                        ? "border-accent text-accent"
-                        : "border-surface-border text-muted"
+                        ? "border-accent bg-background text-accent"
+                        : "border-surface-border bg-background text-muted"
                 }`}
               >
                 <StepIcon state={state} />
