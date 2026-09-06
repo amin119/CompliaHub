@@ -26,7 +26,9 @@ from app.api.routes import (  # noqa: E402
 )
 from app.core.checkpointer import close_checkpointer, open_checkpointer  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
+from app.core.logging import configure_logging  # noqa: E402
 
+configure_logging()
 settings = get_settings()
 
 

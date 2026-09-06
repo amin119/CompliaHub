@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.checkpointer import checkpointer as agent_checkpointer
 from app.core.checkpointer import delete_conversation as delete_conversation_checkpoint
 from app.core.db import get_db
+from app.core.rate_limit import enforce_query_rate_limit
 from app.schemas.query import (
     ConversationResponse,
     ConversationTurn,
@@ -48,7 +49,9 @@ _OFF_TOPIC_FALLBACK = (
 )
 
 
-@router.post("/query", response_model=QueryResponse)
+@router.post(
+    "/query", response_model=QueryResponse, dependencies=[Depends(enforce_query_rate_limit)]
+)
 def query(request: QueryRequest, db: Session = Depends(get_db)) -> QueryResponse:
     """Phase 5: a cheap classifier routes each question to the cheapest
     retrieval strategy that can actually answer it, instead of Phase 4's
@@ -148,7 +151,7 @@ def _stream_query_events(request: QueryRequest, db: Session):
         yield events.error_event(str(exc))
 
 
-@router.post("/query/stream")
+@router.post("/query/stream", dependencies=[Depends(enforce_query_rate_limit)])
 def query_stream(request: QueryRequest, db: Session = Depends(get_db)) -> StreamingResponse:
     """Phase 6 Part 2: the streaming counterpart to `POST /query` — same
     classify-then-route logic, but emits Server-Sent Events (`status`/

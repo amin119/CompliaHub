@@ -1,3 +1,4 @@
+import logging
 import operator
 import uuid
 from typing import Annotated, TypedDict
@@ -15,6 +16,8 @@ from app.schemas.query import Citation, QueryResponse
 from app.services import answer_generation, retrieval, token_tracking
 from app.services import streaming_events as events
 from app.services.graph_store import CommunityWithEmbedding, ProvenancedRelationEdge
+
+logger = logging.getLogger(__name__)
 
 # Part 1 scope decision (still true in Part 2): critique/rewrite/condense
 # below call Gemini directly, with no retry/Protocol-fake-client apparatus
@@ -241,6 +244,9 @@ def build_agent(db: Session, driver, checkpointer, max_iterations: int = DEFAULT
             f"Evidence gathered so far:\n{_summarize_evidence(state, _resolve_chunks(state))}"
         )
         result = _call_gemini_structured(api_key, model, _CRITIQUE_PROMPT, prompt, CritiqueResult)
+        logger.info(
+            "agent critique at iteration %d: sufficient=%s", state["iteration"], result.sufficient
+        )
         return {"sufficient": result.sufficient}
 
     def rewrite_query_node(state: AgentState) -> dict:
@@ -252,6 +258,7 @@ def build_agent(db: Session, driver, checkpointer, max_iterations: int = DEFAULT
             f"{_summarize_evidence(state, _resolve_chunks(state))}"
         )
         result = _call_gemini_structured(api_key, model, _REWRITE_PROMPT, prompt, RewriteResult)
+        logger.info("agent rewrote query: %r -> %r", state["search_query"], result.rewritten_query)
         return {"search_query": result.rewritten_query}
 
     def answer_node(state: AgentState) -> dict:

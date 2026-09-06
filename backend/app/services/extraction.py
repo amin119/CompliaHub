@@ -6,6 +6,7 @@ from google.genai import errors, types
 from pydantic import ValidationError
 
 from app.core.config import get_settings
+from app.services import token_tracking
 from app.services.ontology import ChunkExtraction
 
 _SYSTEM_PROMPT = (
@@ -77,6 +78,7 @@ class _GeminiExtractionClient:
             # at all before this, only ClientError (4xx) was.
             raise ExtractionRateLimited(str(exc)) from exc
 
+        token_tracking.record(response.usage_metadata)
         return ChunkExtraction.model_validate_json(response.text)
 
 

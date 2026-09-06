@@ -35,3 +35,8 @@ def upload_document(client: Minio, object_key: str, data: bytes, content_type: s
         length=len(data),
         content_type=content_type,
     )
+
+
+def delete_document(client: Minio, object_key: str) -> None:
+    """Platform Phase 8: removes one document's stored bytes on deletion."""
+    client.remove_object(DOCUMENTS_BUCKET, object_key)
