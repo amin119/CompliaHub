@@ -1,3 +1,5 @@
+import { BADGE_BASE } from "@/lib/ui";
+
 const STATUS_LABELS: Record<string, string> = {
   VERIFIED: "Verified",
   PARTIALLY_VERIFIED: "Partially verified",
@@ -37,9 +39,5 @@ export function findingStatusLabel(status: string): string {
  */
 export default function FindingStatusBadge({ status }: { status: string }) {
   const style = STATUS_STYLES[status] ?? "bg-surface text-muted";
-  return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${style}`}>
-      {findingStatusLabel(status)}
-    </span>
-  );
+  return <span className={`${BADGE_BASE} ${style}`}>{findingStatusLabel(status)}</span>;
 }

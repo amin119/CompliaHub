@@ -55,7 +55,7 @@ export default function CitationChip({ citation }: { citation: Citation }) {
         className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
           expanded
             ? "border-accent/40 bg-accent-soft text-accent"
-            : "border-surface-border bg-surface text-zinc-600 hover:border-accent/40 hover:text-accent dark:text-zinc-400"
+            : "border-surface-border bg-surface text-muted hover:border-accent/40 hover:text-accent"
         }`}
       >
         {label}
@@ -69,12 +69,12 @@ export default function CitationChip({ citation }: { citation: Citation }) {
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="mt-1.5 max-w-sm rounded-2xl border border-surface-border bg-background p-2.5 text-xs text-zinc-700 dark:text-zinc-300">
-              {loading && <span className="text-zinc-400 dark:text-zinc-500">Loading…</span>}
+            <div className="mt-1.5 max-w-sm rounded-2xl border border-surface-border bg-surface-raised p-2.5 text-xs text-foreground">
+              {loading && <span className="text-muted">Loading…</span>}
               {error && <span className="text-red-600 dark:text-red-400">{error}</span>}
               {chunk && (
                 <>
-                  <p className="mb-1 font-medium text-zinc-500 dark:text-zinc-500">
+                  <p className="mb-1 font-medium text-muted">
                     {chunk.title ?? citation.document_filename}
                   </p>
                   <p className="whitespace-pre-wrap">{chunk.text}</p>

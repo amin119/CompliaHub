@@ -76,10 +76,10 @@ export default function DocumentsPage() {
     <div className="flex flex-1 flex-col items-center bg-background">
       <div className="flex w-full max-w-2xl flex-1 flex-col px-4 py-6 sm:py-8">
         <header className="mb-6">
-          <h1 className="font-display text-2xl font-normal tracking-tight text-foreground">
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
             Documents
           </h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="mt-1 text-sm text-muted">
             Upload a PDF or DOCX standard to ingest it into the knowledge graph.
           </p>
         </header>
@@ -127,7 +127,7 @@ export default function DocumentsPage() {
                     show: { opacity: 1, y: 0 },
                   }}
                   exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                  className="card-interactive rounded-2xl border border-surface-border bg-surface p-4"
+                  className="card-interactive rounded-2xl border border-surface-border bg-surface-raised p-4"
                 >
                   <div className="flex items-center gap-3">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">

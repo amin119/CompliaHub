@@ -25,6 +25,7 @@ import FindingStatusBadge, { FINDING_STATUSES, findingStatusLabel } from "@/comp
 import ComplianceDisclaimerBanner from "@/components/ComplianceDisclaimerBanner";
 import PipelineProgress, { type PipelineStage } from "@/components/PipelineProgress";
 import Skeleton from "@/components/Skeleton";
+import { buttonClasses, filterPillClasses } from "@/lib/ui";
 
 const TERMINAL_STATUSES = ["ready", "failed"];
 const POLL_INTERVAL_MS = 3000;
@@ -360,7 +361,7 @@ export default function ScanDetailPage() {
       <div className="flex w-full max-w-3xl flex-1 flex-col px-4 py-6 sm:py-8">
         <header className="mb-6">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-display text-2xl font-normal tracking-tight text-foreground">
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
               {scan.original_filename}
             </h1>
             <StatusBadge
@@ -424,7 +425,7 @@ export default function ScanDetailPage() {
 
         {scan.status === "ready" && (
           <>
-            <section className="mb-6 rounded-2xl border border-surface-border bg-surface p-4">
+            <section className="mb-6 rounded-2xl border border-surface-border bg-surface-raised p-4">
               <div className="flex flex-wrap gap-x-6 gap-y-3 text-sm">
                 <div>
                   <p className="text-xs text-muted">Files scanned</p>
@@ -437,7 +438,7 @@ export default function ScanDetailPage() {
                       <span className="text-muted">None detected</span>
                     )}
                     {scan.detected_languages.map((language) => (
-                      <span key={language} className="rounded-full bg-accent-soft px-2.5 py-0.5 text-xs text-accent">
+                      <span key={language} className="rounded-full bg-surface px-2.5 py-0.5 text-xs text-foreground">
                         {language}
                       </span>
                     ))}
@@ -450,7 +451,7 @@ export default function ScanDetailPage() {
                       <span className="text-muted">None detected</span>
                     )}
                     {scan.detected_frameworks.map((framework) => (
-                      <span key={framework} className="rounded-full bg-surface-blue px-2.5 py-0.5 text-xs text-foreground">
+                      <span key={framework} className="rounded-full bg-surface px-2.5 py-0.5 text-xs text-foreground">
                         {framework}
                       </span>
                     ))}
@@ -508,11 +509,7 @@ export default function ScanDetailPage() {
                   <button
                     type="button"
                     onClick={() => setFilterType(null)}
-                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                      filterType === null
-                        ? "border-accent bg-accent-soft text-accent"
-                        : "border-surface-border text-muted hover:text-foreground"
-                    }`}
+                    className={filterPillClasses(filterType === null)}
                   >
                     All
                   </button>
@@ -521,11 +518,7 @@ export default function ScanDetailPage() {
                       key={type}
                       type="button"
                       onClick={() => setFilterType(type)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                        filterType === type
-                          ? "border-accent bg-accent-soft text-accent"
-                          : "border-surface-border text-muted hover:text-foreground"
-                      }`}
+                      className={filterPillClasses(filterType === type)}
                     >
                       {COMPONENT_TYPE_LABELS[type] ?? type}
                     </button>
@@ -576,11 +569,7 @@ export default function ScanDetailPage() {
                     <button
                       type="button"
                       onClick={() => setFrameworkFilter(null)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                        frameworkFilter === null
-                          ? "border-accent bg-accent-soft text-accent"
-                          : "border-surface-border text-muted hover:text-foreground"
-                      }`}
+                      className={filterPillClasses(frameworkFilter === null)}
                     >
                       All
                     </button>
@@ -589,11 +578,7 @@ export default function ScanDetailPage() {
                         key={framework}
                         type="button"
                         onClick={() => setFrameworkFilter(framework)}
-                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                          frameworkFilter === framework
-                            ? "border-accent bg-accent-soft text-accent"
-                            : "border-surface-border text-muted hover:text-foreground"
-                        }`}
+                        className={filterPillClasses(frameworkFilter === framework)}
                       >
                         {framework}
                       </button>
@@ -606,11 +591,7 @@ export default function ScanDetailPage() {
                     <button
                       type="button"
                       onClick={() => setStatusFilter(null)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                        statusFilter === null
-                          ? "border-accent bg-accent-soft text-accent"
-                          : "border-surface-border text-muted hover:text-foreground"
-                      }`}
+                      className={filterPillClasses(statusFilter === null)}
                     >
                       All statuses
                     </button>
@@ -619,11 +600,7 @@ export default function ScanDetailPage() {
                         key={status}
                         type="button"
                         onClick={() => setStatusFilter(status)}
-                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                          statusFilter === status
-                            ? "border-accent bg-accent-soft text-accent"
-                            : "border-surface-border text-muted hover:text-foreground"
-                        }`}
+                        className={filterPillClasses(statusFilter === status)}
                       >
                         {findingStatusLabel(status)}
                       </button>
@@ -705,7 +682,11 @@ export default function ScanDetailPage() {
                                   </div>
                                 </td>
                                 <td className="px-3 py-2">
-                                  <span className="rounded-full bg-surface-blue px-2.5 py-0.5 text-xs text-foreground">
+                                  {/* Outlined rather than filled: the row
+                                      itself fills with bg-surface on hover
+                                      and while expanded, so a filled chip
+                                      would disappear into it. */}
+                                  <span className="rounded-full border border-surface-border px-2.5 py-0.5 text-xs whitespace-nowrap text-foreground">
                                     {finding.framework ?? "General"}
                                   </span>
                                 </td>
@@ -741,7 +722,7 @@ export default function ScanDetailPage() {
                                                       (e) => e.source_type === "llm_reasoning",
                                                     )
                                                       ? "border border-surface-border text-muted hover:text-accent"
-                                                      : "bg-cta text-accent-foreground hover:opacity-90"
+                                                      : "bg-cta text-accent-contrast hover:opacity-90"
                                                   }`}
                                                 >
                                                   {validatingFindingIds.has(finding.id) ? (
@@ -777,7 +758,7 @@ export default function ScanDetailPage() {
                                                       (e) => e.source_type === "llm_remediation",
                                                     )
                                                       ? "border border-surface-border text-muted hover:text-accent"
-                                                      : "bg-cta text-accent-foreground hover:opacity-90"
+                                                      : "bg-cta text-accent-contrast hover:opacity-90"
                                                   }`}
                                                 >
                                                   {remediatingFindingIds.has(finding.id) ? (
@@ -866,7 +847,7 @@ export default function ScanDetailPage() {
                                                           key={evidence.id}
                                                           className={`rounded-xl border p-2.5 ${
                                                             isAiGenerated
-                                                              ? "border-purple/30 bg-purple/5"
+                                                              ? "border-ai/30 bg-ai/5"
                                                               : "border-surface-border bg-surface"
                                                           }`}
                                                         >
@@ -888,7 +869,7 @@ export default function ScanDetailPage() {
                                                               <span
                                                                 className={`rounded-full px-1.5 py-0 ${
                                                                   isAiGenerated
-                                                                    ? "bg-purple/15 text-purple"
+                                                                    ? "bg-ai/15 text-ai"
                                                                     : "bg-accent-soft text-accent"
                                                                 }`}
                                                               >
@@ -933,7 +914,7 @@ export default function ScanDetailPage() {
                                                                             !line.startsWith("---")
                                                                           ? "bg-red-500/10 text-red-700 dark:text-red-400"
                                                                           : line.startsWith("@@")
-                                                                            ? "text-purple"
+                                                                            ? "text-ai"
                                                                             : "text-foreground"
                                                                     }
                                                                   >
@@ -1085,7 +1066,10 @@ export default function ScanDetailPage() {
                                                   <button
                                                     type="submit"
                                                     disabled={submittingReviewId === finding.id}
-                                                    className="self-start rounded-full bg-cta px-3 py-1 text-xs font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                                                    className={buttonClasses({
+                                                      size: "sm",
+                                                      className: "self-start",
+                                                    })}
                                                   >
                                                     {submittingReviewId === finding.id
                                                       ? "Submitting…"

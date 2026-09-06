@@ -2,42 +2,41 @@
 
 import { useRef } from "react";
 import { useGSAP } from "@gsap/react";
-import { gsap } from "@/lib/gsap";
+import { MOTION, gsap, prefersReducedMotion } from "@/lib/gsap";
 
 /**
- * The one scroll-reveal primitive for the landing page's sections — a
- * fade-up triggered when the element scrolls into view, guarded by
- * `prefers-reduced-motion`. Used throughout Showcase/Features/UseCases/
- * FinalCta so the page doesn't feel static once you scroll past the hero.
+ * The generic scroll-reveal for blocks that aren't headings (headings use
+ * `RevealText`'s line masks instead). Deliberately restrained: a short rise
+ * with no fade-from-zero, because a page where every single block fades up
+ * identically is its own kind of template tell. Use it for the two or three
+ * moments per section that benefit, not for every element.
  */
 export default function Reveal({
   children,
   className,
   delay = 0,
-  y = 20,
+  y = 24,
+  start = "top 85%",
 }: {
   children: React.ReactNode;
   className?: string;
   delay?: number;
   y?: number;
+  start?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useGSAP(
     () => {
-      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      if (reducedMotion || !ref.current) return;
+      if (prefersReducedMotion() || !ref.current) return;
 
       gsap.from(ref.current, {
         opacity: 0,
         y,
-        duration: 0.7,
+        duration: MOTION.durSlow,
         delay,
-        ease: "power2.out",
-        scrollTrigger: {
-          trigger: ref.current,
-          start: "top 85%",
-        },
+        ease: MOTION.easeOut,
+        scrollTrigger: { trigger: ref.current, start, once: true },
       });
     },
     { scope: ref },

@@ -3,89 +3,131 @@
 /* Redefines Tailwind's `dark:` variant to key off the manual
    `data-theme="dark"` attribute the theme toggle sets, instead of its
    default `@media (prefers-color-scheme: dark)`. Without this, every
-   pre-existing `dark:` class throughout /chat, /documents, CitationChip,
-   and GraphView would keep responding to the OS preference only, while
-   the CSS variables above respond to the user's explicit toggle — the
-   two would visibly desync the moment someone's OS setting and their
-   in-app choice disagree. This one line keeps every existing `dark:`
-   class working correctly under the new toggle with no other file
-   needing to change. */
+   `dark:` class throughout the app would keep responding to the OS
+   preference only, while the CSS variables below respond to the user's
+   explicit toggle — the two would visibly desync the moment someone's OS
+   setting and their in-app choice disagree. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 /* ============================================================
-   UNIFIED DESIGN TOKENS — shared by the landing page, /chat, and
-   /documents. Previously the landing page and the app had entirely
-   separate token systems (the landing page was rebuilt several times
-   while the app stayed untouched, by explicit prior instruction). That
-   instruction has since changed: the app is now meant to share this same
-   visual language, so there is one token system, one dark-mode switch,
-   for the whole product.
+   INK / PAPER / HIGHLIGHTER — one token system for the whole product.
 
-   Light mode: extracted from the user-supplied reference design (home
-   page design/home page.svg) - a job-matching platform ("Sahali") built
-   on a blue -> purple -> pink gradient. Colors are exact hex values
-   pulled from that file's own fills/gradient stops.
+   The concept is what CompliaHub actually does: it reads documents, marks
+   the clause that answers you, and highlights the finding in your code.
+   So the system is ink, paper, and a highlighter.
 
-   Dark mode: extracted from a second reference the user supplied
-   (home page design/original-*.webp - a different job platform,
-   "Loker") - near-black background, a bright green accent, and an
-   orange marquee gradient. Deliberately NOT the same colors dimmed down;
-   the user was explicit that dark mode should use this separate palette.
+   Dark mode is an INVERSION, not a hue swap: light is ink on warm paper,
+   dark is paper on deep violet-ink. The brand accent stays the same
+   violet-indigo family in both, brightened for dark so it glows on ink.
+
+   This replaces the previous palette, which came from two unrelated
+   job-marketplace reference files and had two problems worth naming:
+   its dark mode was near-black + acid green (the single most recognizable
+   "AI-generated dark theme" tell), and the brand switched identity
+   between themes (blue in light, green in dark). Both are deliberately
+   gone. See DESIGN-SYSTEM.md's "deliberate departures" section.
+
+   Three colors carry meaning, and only three:
+     --accent  violet-indigo  brand, interactive, links, focus
+     --mark    amber          emphasis: found, live, marked
+     --ai      teal           machine-generated content (functional, not brand)
+   Severity/status colors are their own functional scale and never borrow
+   from these — they have to survive print and both themes.
    ============================================================ */
 :root {
-  --background: #ffffff;
-  --surface: #f5f5f5;
-  --surface-blue: #f3f6ff;
-  --surface-border: #e5e5e5;
-  --foreground: #0a0a0a;
-  --muted: #737373;
+  /* --- surfaces: ink on paper --- */
+  --background: #faf8f4;
+  --surface: #f2eee6;
+  --surface-raised: #ffffff;
+  --surface-border: #e3ddd1;
+  --foreground: #141019;
+  --muted: #6b6472;
 
-  --accent: #0033ff;
-  --accent-foreground: #ffffff;
-  --accent-soft: #f3f6ff;
-  --purple: #977dff;
-  --pink: #ffccf2;
+  /* --- brand --- */
+  --accent: #4b21e2;
+  --accent-strong: #3a15b8;
+  --accent-contrast: #ffffff;
+  --accent-soft: #eee9fd;
 
-  /* Button/CTA fill - a gradient in light mode, a solid color in dark
-     mode (see below) - both are valid values for the `background`
-     shorthand, so one token covers both. */
-  --cta-fill: linear-gradient(120deg, var(--accent) 0%, var(--purple) 65%, var(--pink) 100%);
-  /* The marquee band's own gradient - independent of the button fill,
-     since the two use different colors in dark mode. */
-  --marquee-fill: linear-gradient(120deg, var(--accent) 0%, var(--purple) 65%, var(--pink) 100%);
+  /* --- the highlighter: the only shout --- */
+  --mark: #ffce1f;
+  --mark-strong: #f0b800;
+  --mark-contrast: #241b00;
+  --mark-soft: #fff4cf;
 
-  /* Page-level ambient glows (top + two bottom corners). Dark mode uses a
-     single subdued top glow instead - see the Loker reference, which has
-     no pink/blue bottom bleed at all. */
-  --glow-top: radial-gradient(60% 50% at 50% 0%, var(--pink) 0%, transparent 70%);
-  --glow-bottom-left: radial-gradient(45% 40% at 0% 100%, var(--pink) 0%, transparent 70%);
-  --glow-bottom-right: radial-gradient(45% 40% at 100% 100%, var(--surface-blue) 0%, transparent 70%);
+  /* --- functional: machine-generated content (AI validation/remediation).
+         Deliberately outside the brand family so an analyst can tell at a
+         glance that a machine wrote it, without it competing with the
+         accent for "this is interactive". --- */
+  --ai: #0e8a9a;
+  --ai-soft: #dcf2f4;
+
+  /* Primary fill: a tight two-stop of the brand itself, not a three-stop
+     rainbow. Both a gradient and a solid are valid `background` values, so
+     one token covers both themes. */
+  --cta-fill: linear-gradient(120deg, var(--accent) 0%, var(--accent-strong) 100%);
+  /* Marquee bands get the highlighter, so a band reads as a *marked*
+     strip rather than a dimmed CTA. Its own token for exactly that reason. */
+  --marquee-fill: linear-gradient(120deg, var(--mark) 0%, var(--mark-strong) 100%);
+
+  /* Ambient page glow — deliberately subtle, and only ever shown behind
+     the hero and the final CTA. A wash used as filler on every section is
+     a tell; used twice, as punctuation, it reads as intent. */
+  --glow-top: radial-gradient(55% 42% at 50% 0%, color-mix(in srgb, var(--accent) 12%, transparent) 0%, transparent 72%);
+  --glow-bottom-left: radial-gradient(40% 34% at 2% 100%, color-mix(in srgb, var(--mark) 16%, transparent) 0%, transparent 70%);
+  --glow-bottom-right: radial-gradient(40% 34% at 98% 100%, color-mix(in srgb, var(--accent) 9%, transparent) 0%, transparent 70%);
 
   --ring: var(--accent);
+
+  /* Paper grain. Tactile, not decorative noise — it's what makes the warm
+     ground read as a surface rather than a flat fill. */
+  --noise-opacity: 0.035;
+
+  /* --- motion system: one set of eases/durations so every animation in
+         the product feels like it came from the same hand --- */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-in-out-quint: cubic-bezier(0.83, 0, 0.17, 1);
+  --dur-fast: 220ms; /* hover / micro-interaction */
+  --dur-base: 420ms; /* UI transitions */
+  --dur-slow: 800ms; /* scroll reveals */
+  --dur-hero: 1000ms; /* the one orchestrated hero sequence */
 }
 
 :root[data-theme="dark"] {
-  --background: #0a0d0a;
-  --surface: #151815;
-  --surface-blue: #16201a;
-  --surface-border: #262b26;
-  --foreground: #f2f4f2;
-  --muted: #9aa39a;
+  /* paper on ink — the inversion */
+  --background: #141019;
+  --surface: #1d1726;
+  --surface-raised: #241c30;
+  --surface-border: #2e2639;
+  --foreground: #f4f1ec;
+  --muted: #a79fb2;
 
-  --accent: #22c55e;
-  --accent-foreground: #06210f;
-  --accent-soft: rgba(34, 197, 94, 0.14);
-  --purple: #4ade80;
-  --pink: #86efac;
+  --accent: #9b7bff;
+  --accent-strong: #b79bff;
+  --accent-contrast: #160f24;
+  --accent-soft: rgba(155, 123, 255, 0.16);
 
-  --cta-fill: var(--accent);
-  --marquee-fill: linear-gradient(120deg, #f97316 0%, #fb923c 100%);
+  --mark: #ffd84d;
+  --mark-strong: #ffc61f;
+  --mark-contrast: #241b00;
+  --mark-soft: rgba(255, 216, 77, 0.15);
 
-  --glow-top: radial-gradient(60% 45% at 50% 0%, rgba(34, 197, 94, 0.16) 0%, transparent 75%);
-  --glow-bottom-left: none;
+  --ai: #4fd1c5;
+  --ai-soft: rgba(79, 209, 197, 0.16);
+
+  --cta-fill: linear-gradient(120deg, var(--accent) 0%, var(--accent-strong) 100%);
+  --marquee-fill: linear-gradient(120deg, var(--mark) 0%, var(--mark-strong) 100%);
+
+  --glow-top: radial-gradient(55% 40% at 50% 0%, rgba(155, 123, 255, 0.16) 0%, transparent 74%);
+  --glow-bottom-left: radial-gradient(38% 30% at 2% 100%, rgba(255, 216, 77, 0.08) 0%, transparent 72%);
   --glow-bottom-right: none;
 
   --ring: var(--accent);
+
+  /* Grain reads heavier on a dark ground — dialed back so it stays a
+     texture rather than visible dithering. */
+  --noise-opacity: 0.022;
 }
 
 /* Falls back to the OS preference only until the user makes an explicit
@@ -93,23 +135,29 @@
    localStorage, defaulting to this same media query on first visit). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]):not([data-theme="dark"]) {
-    --background: #0a0d0a;
-    --surface: #151815;
-    --surface-blue: #16201a;
-    --surface-border: #262b26;
-    --foreground: #f2f4f2;
-    --muted: #9aa39a;
-    --accent: #22c55e;
-    --accent-foreground: #06210f;
-    --accent-soft: rgba(34, 197, 94, 0.14);
-    --purple: #4ade80;
-    --pink: #86efac;
-    --cta-fill: var(--accent);
-    --marquee-fill: linear-gradient(120deg, #f97316 0%, #fb923c 100%);
-    --glow-top: radial-gradient(60% 45% at 50% 0%, rgba(34, 197, 94, 0.16) 0%, transparent 75%);
-    --glow-bottom-left: none;
+    --background: #141019;
+    --surface: #1d1726;
+    --surface-raised: #241c30;
+    --surface-border: #2e2639;
+    --foreground: #f4f1ec;
+    --muted: #a79fb2;
+    --accent: #9b7bff;
+    --accent-strong: #b79bff;
+    --accent-contrast: #160f24;
+    --accent-soft: rgba(155, 123, 255, 0.16);
+    --mark: #ffd84d;
+    --mark-strong: #ffc61f;
+    --mark-contrast: #241b00;
+    --mark-soft: rgba(255, 216, 77, 0.15);
+    --ai: #4fd1c5;
+    --ai-soft: rgba(79, 209, 197, 0.16);
+    --cta-fill: linear-gradient(120deg, var(--accent) 0%, var(--accent-strong) 100%);
+    --marquee-fill: linear-gradient(120deg, var(--mark) 0%, var(--mark-strong) 100%);
+    --glow-top: radial-gradient(55% 40% at 50% 0%, rgba(155, 123, 255, 0.16) 0%, transparent 74%);
+    --glow-bottom-left: radial-gradient(38% 30% at 2% 100%, rgba(255, 216, 77, 0.08) 0%, transparent 72%);
     --glow-bottom-right: none;
     --ring: var(--accent);
+    --noise-opacity: 0.022;
   }
 }
 
@@ -117,15 +165,25 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-surface: var(--surface);
-  --color-surface-blue: var(--surface-blue);
+  --color-surface-raised: var(--surface-raised);
   --color-surface-border: var(--surface-border);
   --color-muted: var(--muted);
+
   --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-contrast: var(--accent-contrast);
   --color-accent-soft: var(--accent-soft);
-  --color-purple: var(--purple);
-  --color-pink: var(--pink);
+
+  --color-mark: var(--mark);
+  --color-mark-strong: var(--mark-strong);
+  --color-mark-contrast: var(--mark-contrast);
+  --color-mark-soft: var(--mark-soft);
+
+  --color-ai: var(--ai);
+  --color-ai-soft: var(--ai-soft);
+
   --color-ring: var(--ring);
+
   --font-sans: var(--font-sans-base);
   --font-display: var(--font-display);
 }
@@ -134,13 +192,52 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition:
+    background-color var(--dur-fast) ease,
+    color var(--dur-fast) ease;
 }
 
+/* ============================================================
+   TYPE
+   Type is the hero visual on the landing page: big, tight, confident.
+   The scale lives here as utilities rather than repeated clamp() calls
+   scattered through components.
+   ============================================================ */
 .font-display {
   font-family: var(--font-display), Arial, Helvetica, sans-serif;
 }
 
+.text-display {
+  font-size: clamp(3rem, 11vw, 11rem);
+  line-height: 0.92;
+  letter-spacing: -0.03em;
+}
+
+.text-h1 {
+  font-size: clamp(2.5rem, 6vw, 5.5rem);
+  line-height: 0.98;
+  letter-spacing: -0.025em;
+}
+
+.text-h2 {
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  line-height: 1.03;
+  letter-spacing: -0.02em;
+}
+
+.text-lead {
+  font-size: clamp(1.05rem, 1.6vw, 1.35rem);
+  line-height: 1.55;
+}
+
+/* Body copy never runs past a comfortable measure. */
+.measure {
+  max-width: 62ch;
+}
+
+/* ============================================================
+   BRAND FILLS & THE HIGHLIGHTER
+   ============================================================ */
 .bg-cta {
   background: var(--cta-fill);
 }
@@ -156,11 +253,49 @@ body {
   color: transparent;
 }
 
-/* One page-level ambient background, used behind the landing page (and
-   available anywhere else that wants it). Sits at z-index -10 behind
-   normal content; sections with an opaque background simply cover it,
-   the same way the reference design's white cards cover its own glow
-   except right behind the hero and right above the footer. */
+/* The highlighter, as a full-line block: dark ink on amber in BOTH themes,
+   exactly like a real marker over a page. Applied to a whole line or
+   phrase — never a single recolored word, which is a template tell.
+   `box-decoration-break: clone` keeps the marker looking continuous when
+   the phrase wraps. Animate `background-size` from `0% 100%` to sweep it
+   on (see RevealText / Hero). */
+.mark-block {
+  display: inline;
+  color: var(--mark-contrast);
+  background-image: linear-gradient(var(--mark), var(--mark));
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: 100% 100%;
+  padding-inline: 0.12em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* The animated variant, used by `MarkSweep`. Two identical text layers are
+   stacked: the plain one underneath, this marked one on top, revealed by
+   animating its `clip-path` left to right — so the phrase is fully legible
+   at every frame of the sweep in *both* themes. (Animating the background
+   width of a single layer can't work: the marked text needs dark ink on
+   amber, which would be invisible against a dark ground wherever the amber
+   hasn't arrived yet.) */
+.mark-sweep {
+  color: var(--mark-contrast);
+  background-color: var(--mark);
+  clip-path: inset(0 100% 0 0);
+}
+
+/* The lighter variant: a marker stroke behind the baseline, text keeps its
+   own color. For emphasis inside body copy, where a full block would shout. */
+.mark-underline {
+  background-image: linear-gradient(var(--mark), var(--mark));
+  background-repeat: no-repeat;
+  background-position: 0 88%;
+  background-size: 100% 0.3em;
+}
+
+/* One page-level ambient background, used behind the hero and the final
+   CTA only. Sits behind normal content; sections with an opaque background
+   simply cover it. */
 .bg-ambient-glow {
   background-image: var(--glow-top), var(--glow-bottom-left), var(--glow-bottom-right);
   background-repeat: no-repeat;
@@ -169,16 +304,47 @@ body {
     bottom left,
     bottom right;
   background-size:
-    100% 600px,
-    50% 400px,
-    50% 400px;
+    100% 620px,
+    50% 420px,
+    50% 420px;
 }
 
+/* Paper grain. Fixed, non-interactive, driven by --noise-opacity so each
+   theme can tune it (grain reads heavier on a dark ground). */
+.grain-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: var(--noise-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Added from JS by `Cursor.tsx` once the custom cursor has actually mounted
+   and taken over — never present in the static markup, so a failed or
+   blocked script always leaves the real pointer visible. */
+.cursor-none,
+.cursor-none * {
+  cursor: none;
+}
+
+/* ============================================================
+   FOCUS & SELECTION
+   ============================================================ */
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+  border-radius: 2px;
 }
 
+::selection {
+  background: var(--mark);
+  color: var(--mark-contrast);
+}
+
+/* ============================================================
+   MOTION UTILITIES
+   ============================================================ */
 @keyframes blink-caret {
   0%,
   49% {
@@ -194,12 +360,15 @@ body {
   animation: blink-caret 1s step-end infinite;
 }
 
-/* The diagonal marquee band. A plain CSS keyframe translate loop, not
-   GSAP: it never needs to react to scroll position, and it already
-   respects prefers-reduced-motion via the media query below rather than
-   a JS check. */
+/* The marquee band. A plain CSS keyframe translate loop, not GSAP: it
+   never needs to react to scroll position, and it respects
+   prefers-reduced-motion via the media query below rather than a JS check. */
 .marquee-track {
-  animation: marquee-scroll 22s linear infinite;
+  animation: marquee-scroll 26s linear infinite;
+}
+
+.marquee-track-reverse {
+  animation: marquee-scroll 26s linear infinite reverse;
 }
 
 @keyframes marquee-scroll {
@@ -211,22 +380,72 @@ body {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .marquee-track {
-    animation: none;
+/* Loading-placeholder shimmer for Skeleton.tsx — a soft sweep rather than
+   a flat pulse, so a row of skeletons reads as "loading" at a glance. */
+@keyframes shimmer-sweep {
+  0% {
+    background-position: -150% 0;
+  }
+  100% {
+    background-position: 150% 0;
   }
 }
 
-::selection {
-  background: var(--accent-soft);
-  color: var(--accent);
+.animate-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    var(--surface-border) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: shimmer-sweep 1.6s ease-in-out infinite;
 }
 
-/* Thin, theme-aware scrollbar for the app's own scrollable panes (chat
+/* Shared hover-lift for clickable list cards (document rows, scan rows,
+   findings) — one definition so every card in the app lifts identically. */
+.card-interactive {
+  transition:
+    transform var(--dur-fast) var(--ease-out-quart),
+    box-shadow var(--dur-fast) var(--ease-out-quart),
+    border-color var(--dur-fast) var(--ease-out-quart);
+}
+.card-interactive:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--surface-border));
+  box-shadow: 0 10px 30px -16px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+:root[data-theme="dark"] .card-interactive:hover {
+  box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.6);
+}
+
+/* Every ambient (non-user-triggered) animation stops here. JS-driven GSAP
+   effects check the same query before creating tweens; these cover the
+   CSS-only ones. */
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track,
+  .marquee-track-reverse {
+    animation: none;
+  }
+  .animate-shimmer {
+    animation: none;
+  }
+  /* The caret is ambient too — it blinks on its own whether or not anyone
+     is typing, so it belongs here with the marquee and the shimmer. */
+  .animate-blink-caret {
+    animation: none;
+  }
+  .grain-overlay {
+    display: none;
+  }
+}
+
+/* ============================================================
+   SCROLLBARS
+   Thin, theme-aware scrollbar for the app's own scrollable panes (chat
    transcript, findings/files tables) — the browser default is visually
-   loud against these rounded, bordered surfaces. Firefox + WebKit only
-   (`scrollbar-*` has no IE/legacy target here); absence degrades to the
-   OS default scrollbar, never breaks scrolling itself. */
+   loud against these rounded, bordered surfaces.
+   ============================================================ */
 .themed-scroll {
   scrollbar-width: thin;
   scrollbar-color: var(--surface-border) transparent;
@@ -249,62 +468,23 @@ body {
   background-clip: padding-box;
 }
 
-/* Loading-placeholder shimmer for Skeleton.tsx — a soft sweep rather than
-   a flat pulse, so a row of skeletons reads as "loading" at a glance
-   rather than "blinking." */
-@keyframes shimmer-sweep {
-  0% {
-    background-position: -150% 0;
-  }
-  100% {
-    background-position: 150% 0;
-  }
-}
-.animate-shimmer {
-  background-image: linear-gradient(
-    100deg,
-    transparent 30%,
-    var(--surface-border) 50%,
-    transparent 70%
-  );
-  background-size: 200% 100%;
-  animation: shimmer-sweep 1.6s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .animate-shimmer {
-    animation: none;
-  }
-}
-
-/* Shared hover-lift for clickable list cards (document rows, scan rows) —
-   one definition so every card in the app lifts identically instead of
-   each page hand-rolling its own shadow/transform values. */
-.card-interactive {
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    border-color 0.18s ease;
-}
-.card-interactive:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.18);
-}
-:root[data-theme="dark"] .card-interactive:hover {
-  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.5);
-}
-
-/* Phase 8 (Reports): browsers suppress background-color by default when
-   printing, which would otherwise silently drop every severity/status
-   badge's color-coding — exactly what a printed report needs most to stay
-   legible. Forcing light mode itself for print is handled in the report
-   page's own print handler (temporarily flips the `data-theme` DOM
-   attribute around `window.print()`) rather than here, since the dark
-   variant is keyed off that attribute, not a media query — a `@media
-   print` override of these tokens alone wouldn't touch literal `dark:`
-   utility classes like SeverityBadge's `dark:bg-red-500/15`. */
+/* ============================================================
+   PRINT
+   Browsers suppress background-color when printing, which would silently
+   drop every severity/status badge's color-coding — exactly what a printed
+   evidence report needs most. Forcing light mode itself for print is
+   handled in the report page's own print handler (it temporarily flips the
+   `data-theme` attribute around `window.print()`), since the dark variant
+   keys off that attribute rather than a media query — a `@media print`
+   token override alone wouldn't touch literal `dark:` utility classes.
+   ============================================================ */
 @media print {
   * {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
+  }
+  .grain-overlay,
+  .bg-ambient-glow {
+    display: none;
   }
 }

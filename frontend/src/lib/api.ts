@@ -122,6 +122,39 @@ export async function streamQuestion(
   }
 }
 
+export type ConversationTurn = {
+  question: string;
+  answer: string;
+};
+
+export type ConversationResponse = {
+  conversation_id: string;
+  turns: ConversationTurn[];
+};
+
+/**
+ * Only `agent`-classified turns ever build resumable history (see
+ * docs/phase-5-agentic-loop.md) — `vector`/`graph`-classified and
+ * off-topic turns never touch the checkpointer at all, even though they
+ * still return a `conversation_id`. Callers must expect this to 404 for a
+ * conversation_id the frontend itself generated/saved but that the backend
+ * never actually persisted anything under.
+ */
+export async function getConversation(conversationId: string): Promise<ConversationResponse> {
+  const response = await fetch(`${API_URL}/query/conversations/${conversationId}`);
+  if (!response.ok) throw new Error(await parseErrorDetail(response));
+  return response.json();
+}
+
+export async function deleteConversation(conversationId: string): Promise<void> {
+  const response = await fetch(`${API_URL}/query/conversations/${conversationId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new Error(await parseErrorDetail(response));
+  }
+}
+
 export type DocumentStatus = {
   id: string;
   filename: string;
