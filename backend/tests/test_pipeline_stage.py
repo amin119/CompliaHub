@@ -1,10 +1,12 @@
 import uuid
+from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.core.db import SessionLocal, engine
-from app.models.document import Document
+from app.models.document import Document, ProcessingJob
+from app.services import token_tracking
 from app.tasks.pipeline import pipeline_stage
 
 
@@ -77,3 +79,45 @@ def test_pipeline_stage_raises_for_missing_document():
     with pytest.raises(ValueError, match="not found"):
         with pipeline_stage(str(uuid.uuid4()), "test_stage", "running_test"):
             pass
+
+
+def _job_for(document_id: uuid.UUID, task_name: str) -> ProcessingJob:
+    db = SessionLocal()
+    try:
+        return db.scalar(
+            select(ProcessingJob)
+            .where(ProcessingJob.document_id == document_id, ProcessingJob.task_name == task_name)
+            .order_by(ProcessingJob.started_at.desc())
+        )
+    finally:
+        db.close()
+
+
+def test_pipeline_stage_persists_token_usage_when_tracked():
+    """Platform Phase 8: a stage that makes a real (or, here, simulated)
+    Gemini call should have its token usage persisted onto the job row —
+    extends Phase 7's `token_tracking` pattern from `/query` to ingestion.
+    """
+    document = _make_document()
+
+    with pipeline_stage(str(document.id), "test_stage_tokens", "running_test") as (_db, _doc):
+        token_tracking.record(SimpleNamespace(prompt_token_count=42, candidates_token_count=7))
+
+    job = _job_for(document.id, "test_stage_tokens")
+    assert job.prompt_tokens == 42
+    assert job.completion_tokens == 7
+
+
+def test_pipeline_stage_leaves_token_columns_null_when_nothing_tracked():
+    """A stage that never calls a Gemini API (e.g. parse/chunk/embed) must
+    not get a misleading `0` — null distinguishes "no tokens used" from
+    "this stage doesn't track tokens at all" being conflated.
+    """
+    document = _make_document()
+
+    with pipeline_stage(str(document.id), "test_stage_no_tokens", "running_test"):
+        pass
+
+    job = _job_for(document.id, "test_stage_no_tokens")
+    assert job.prompt_tokens is None
+    assert job.completion_tokens is None

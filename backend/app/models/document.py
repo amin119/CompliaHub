@@ -90,5 +90,10 @@ class ProcessingJob(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Platform Phase 8: populated from `token_tracking.current()` on success
+    # — null for stages that never start a tracker (parse/chunk/embed have
+    # no Gemini call), non-null for extraction/resolve_and_load.
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     document: Mapped["Document"] = relationship(back_populates="processing_jobs")

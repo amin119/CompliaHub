@@ -169,6 +169,23 @@ def fetch_all_relations(driver: Driver) -> list[RelationEdge]:
         ]
 
 
+def clear_entity_graph(driver: Driver) -> None:
+    """Platform Phase 8: full wipe of every entity node and relation —
+    mirrors `clear_communities`'s own "always fully recompute, never
+    reconcile incrementally" convention, extended from communities to the
+    whole graph. This is the user's own resolved decision (via
+    `AskUserQuestion`) for cleaning up a deleted document's graph
+    contributions: full rebuild over incremental provenance-tracked
+    deletion, since entity nodes carry no per-document provenance and
+    adding it was judged disproportionate at this project's real corpus
+    size (see docs/phase-8-scaling.md). Communities are NOT cleared here —
+    consistent with the existing convention that they're only ever rebuilt
+    on an explicit `POST /graph/communities/detect` call, never auto-chained.
+    """
+    with driver.session() as session:
+        session.run("MATCH (e) WHERE NOT e:Community DETACH DELETE e")
+
+
 def clear_communities(driver: Driver) -> None:
     """Deletes every `Community` node (and its `IN_COMMUNITY` edges, via
     `DETACH DELETE`). Communities are always fully recomputed from scratch,

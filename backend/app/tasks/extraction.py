@@ -1,3 +1,4 @@
+import logging
 import time
 
 from app.models.document import Chunk
@@ -5,6 +6,8 @@ from app.services import embedding, entity_resolution, extraction, extraction_ca
 from app.services.hashing import sha256_bytes
 from app.tasks.celery_app import celery_app
 from app.tasks.pipeline import pipeline_stage
+
+logger = logging.getLogger(__name__)
 
 _STATUS_FIELD = "graph_status"
 _ERROR_FIELD = "graph_error_message"
@@ -36,24 +39,33 @@ def extract_document_task(document_id: str) -> None:
             db.query(Chunk).filter(Chunk.document_id == document.id).order_by(Chunk.path).all()
         )
 
+        cache_hits = 0
+        cache_misses = 0
         last_call_at: float | None = None
         for chunk in chunks:
             content_hash = sha256_bytes(chunk.text.encode("utf-8"))
 
             if extraction_cache.get_cached(db, content_hash) is not None:
+                cache_hits += 1
                 continue  # cache hit — no API call made, no need to pace
 
             if last_call_at is not None:
                 elapsed = time.monotonic() - last_call_at
                 remaining = _SECONDS_BETWEEN_EXTRACTION_CALLS - elapsed
                 if remaining > 0:
+                    logger.info("extraction pacing sleep of %.2fs", remaining)
                     time.sleep(remaining)
 
             result = extraction.extract_chunk_text(chunk.text)
             last_call_at = time.monotonic()
             extraction_cache.store_result(db, content_hash, result)
             db.commit()
+            cache_misses += 1
 
+        logger.info(
+            "extraction cache: %d hit(s), %d miss(es) for document %s",
+            cache_hits, cache_misses, document.id,
+        )
         document.graph_status = "extracted"
 
 
@@ -131,4 +143,8 @@ def resolve_and_load_document_task(_extract_result: None, document_id: str) -> N
         finally:
             driver.close()
 
+        logger.info(
+            "resolved %d entities into %d nodes for document %s",
+            len(candidates), len(node_ids), document.id,
+        )
         document.graph_status = "ready"

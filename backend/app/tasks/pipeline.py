@@ -1,9 +1,14 @@
+import logging
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from app.core.db import SessionLocal
+from app.core.logging import set_correlation_id
 from app.models.document import Document, ProcessingJob
+from app.services import token_tracking
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
@@ -39,6 +44,7 @@ def _fail(
     setattr(document, status_field, "failed")
     setattr(document, error_field, str(error))
     db.commit()
+    logger.error("stage %s failed for document %s: %s", job.task_name, document.id, error)
 
 
 @contextmanager
@@ -74,6 +80,7 @@ def pipeline_stage(
     runs in, imports this module, so pulling in a provider-specific import
     here would silently defeat the whole point of per-worker slim images.
     """
+    set_correlation_id(document_id)
     db = SessionLocal()
     try:
         document = db.get(Document, uuid.UUID(document_id))
@@ -86,7 +93,9 @@ def pipeline_stage(
         db.add(job)
         setattr(document, status_field, in_progress_status)
         db.commit()
+        logger.info("stage %s starting for document %s", task_name, document.id)
 
+        usage = token_tracking.start_tracking()
         try:
             yield db, document
         except Exception as exc:
@@ -95,6 +104,15 @@ def pipeline_stage(
 
         job.status = "success"
         job.finished_at = _now()
+        # A no-op for stages that never call a Gemini API (parse/chunk/embed)
+        # — `usage` stays all-zero, same as `token_tracking`'s own
+        # documented "nothing was tracked" shape.
+        job.prompt_tokens = usage.prompt_tokens or None
+        job.completion_tokens = usage.completion_tokens or None
         db.commit()
+        duration = (job.finished_at - job.started_at).total_seconds()
+        logger.info(
+            "stage %s succeeded for document %s in %.2fs", task_name, document.id, duration
+        )
     finally:
         db.close()

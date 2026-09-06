@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.core.security import require_api_key
 from app.schemas.graph import CommunityListResponse, CommunityResponse
 from app.services import graph_store
 from app.tasks.celery_app import celery_app
@@ -8,7 +9,7 @@ from app.tasks.community_detection import detect_communities_task
 router = APIRouter(prefix="/graph/communities", tags=["communities"])
 
 
-@router.post("/detect", status_code=202)
+@router.post("/detect", status_code=202, dependencies=[Depends(require_api_key)])
 def detect_communities():
     """Kicks off a full corpus-wide rebuild in the background and returns
     immediately with a Celery task id — there's no `document_id` to poll via

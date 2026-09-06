@@ -44,6 +44,42 @@ def upsert_chunks(client: QdrantClient, chunks: list[Chunk], vectors: list[list[
     client.upsert(COLLECTION_NAME, points=points)
 
 
+def delete_by_document(client: QdrantClient, document_id: uuid.UUID) -> None:
+    """Platform Phase 8: removes every point belonging to one document. Safe
+    as a plain filter-delete with no cross-document risk — chunks (and
+    their Qdrant points) are never shared across documents, unlike Neo4j's
+    entity nodes.
+    """
+    client.delete(
+        COLLECTION_NAME,
+        points_selector=models.FilterSelector(
+            filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="document_id", match=models.MatchValue(value=str(document_id))
+                    )
+                ]
+            )
+        ),
+    )
+
+
+def count_by_document(client: QdrantClient, document_id: uuid.UUID) -> int:
+    """Platform Phase 8: used by live-infra tests to confirm a document's
+    points are actually gone after `delete_by_document`."""
+    result = client.count(
+        COLLECTION_NAME,
+        count_filter=models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="document_id", match=models.MatchValue(value=str(document_id))
+                )
+            ]
+        ),
+    )
+    return result.count
+
+
 def search(
     client: QdrantClient, query_vector: list[float], top_k: int
 ) -> list[tuple[uuid.UUID, float]]:

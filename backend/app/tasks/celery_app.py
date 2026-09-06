@@ -14,10 +14,26 @@ import truststore
 truststore.inject_into_ssl()
 
 from celery import Celery  # noqa: E402
+from celery.signals import after_setup_logger, after_setup_task_logger  # noqa: E402
 
 from app.core.config import get_settings  # noqa: E402
+from app.core.logging import configure_logging  # noqa: E402
 
+configure_logging()
 settings = get_settings()
+
+
+@after_setup_logger.connect
+@after_setup_task_logger.connect
+def _use_json_logging(**kwargs) -> None:
+    """Celery's own worker bootstrap configures the root logger with its
+    own handler/formatter *after* this module's import-time
+    `configure_logging()` call already ran, silently discarding it
+    (confirmed live: application log lines printed as Celery's plain text,
+    not JSON). These two signals are the only point that reliably fires
+    after Celery's own setup finishes, so `force=True` here wins the race.
+    """
+    configure_logging(force=True)
 
 # Redis doubles as both broker (the task queue) and result backend (where a
 # task's return value is stored) — one less moving part than adding a second

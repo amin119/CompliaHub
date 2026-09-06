@@ -77,6 +77,18 @@ class Settings(BaseSettings):
     # default.
     gemini_eval_model: str = "gemini-3.1-flash-lite"
 
+    # Platform Phase 8 (Scaling & Hardening) — security basics. Empty-string
+    # default means auth is a real no-op until explicitly configured, same
+    # convention as every provider key above: the app and test suite boot
+    # and pass without a `.env`, and mutating routes stay open in local dev
+    # unless someone deliberately sets this.
+    platform_api_key: str = ""
+    # Fixed-window rate limit for /query (each call can trigger several
+    # paid Gemini/Voyage/Cohere calls) — an empirical starting point, same
+    # "tune against real use" spirit as every other constant like this in
+    # this project (e.g. agent.py's DEFAULT_MAX_ITERATIONS).
+    query_rate_limit_per_minute: int = 20
+
 
 @lru_cache
 def get_settings() -> Settings:

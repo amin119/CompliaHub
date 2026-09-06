@@ -13,6 +13,7 @@ defeating streaming's purpose, and the eval harness never needs token-by-
 token output.
 """
 
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.core.checkpointer import checkpointer as agent_checkpointer
 from app.core.checkpointer import ensure_open as ensure_checkpointer_open
+from app.core.logging import set_correlation_id
 from app.models.document import Chunk
 from app.schemas.query import QueryResponse
 from app.services import (
@@ -34,6 +36,8 @@ from app.services import (
 )
 from app.services.query_classifier import QueryCategory
 from app.services.token_tracking import TokenUsage
+
+logger = logging.getLogger(__name__)
 
 _OFF_TOPIC_FALLBACK = (
     "I'm a compliance assistant for ISO 27001, ISO 42001, and GDPR — I can't "
@@ -89,8 +93,10 @@ def run_query(
     """
     start = time.perf_counter()
     usage = token_tracking.start_tracking()
+    set_correlation_id(conversation_id or str(uuid.uuid4()))
 
     classification = query_classifier.classify_query(question)
+    logger.info("query classified as %s", classification.category.value)
 
     if classification.category == QueryCategory.OFF_TOPIC:
         response = QueryResponse(
