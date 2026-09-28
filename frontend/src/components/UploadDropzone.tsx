@@ -94,7 +94,7 @@ export default function UploadDropzone({
             : { duration: 0.15 }
         }
       >
-        <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-accent">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="h-5 w-5 text-accent">
           {uploading ? (
             <motion.path
               d="M12 4a8 8 0 1 0 8 8"

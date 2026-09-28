@@ -34,9 +34,9 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 const SUGGESTIONS = [
-  "What controls satisfy GDPR Article 32?",
-  "What does ISO 42001 require that ISO 27001 doesn't?",
-  "What controls mitigate the risk of unauthorized access?",
+  { tag: "GDPR", question: "What controls satisfy GDPR Article 32?" },
+  { tag: "ISO 42001", question: "What does ISO 42001 require that ISO 27001 doesn't?" },
+  { tag: "ISO 27001", question: "What controls mitigate the risk of unauthorized access?" },
 ];
 
 type ConversationSummary = {
@@ -323,13 +323,21 @@ export default function ChatPage() {
     <div className="flex flex-1 flex-col items-center bg-background">
       <div className="flex w-full max-w-2xl flex-1 flex-col px-4 py-8 sm:py-10">
         <header className="mb-6 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
-              Ask CompliaHub
-            </h1>
-            <p className="mt-1 text-sm text-muted">
-              Answered from the ISO 27001, ISO 42001 and GDPR documents you&rsquo;ve ingested.
-            </p>
+          <div className="flex items-start gap-3.5">
+            <span
+              aria-hidden="true"
+              className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-accent-soft text-accent"
+            >
+              <Logo className="h-5 w-5" />
+            </span>
+            <div>
+              <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
+                Ask CompliaHub
+              </h1>
+              <p className="mt-1 text-sm text-muted">
+                Answered from the ISO 27001, ISO 42001 and GDPR documents you&rsquo;ve ingested.
+              </p>
+            </div>
           </div>
           <div className="mt-1.5 flex shrink-0 items-center gap-3">
             <button
@@ -402,33 +410,56 @@ export default function ChatPage() {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
-              className="m-auto flex max-w-sm flex-col items-center gap-6 text-center"
+              className="m-auto flex max-w-md flex-col items-center gap-6 text-center"
             >
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent-soft">
-                <Logo className="h-6 w-6 text-accent" />
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-accent-soft text-accent ring-8 ring-accent-soft/40">
+                <Logo className="h-6 w-6" />
+              </span>
+              <div>
+                <p className="font-display text-lg font-semibold text-foreground">
+                  Ask it like you&rsquo;d ask a colleague
+                </p>
+                <p className="mt-1.5 text-sm text-muted">
+                  Cross-standard mapping, gap analysis, or a specific clause — every answer
+                  carries the citation it came from.
+                </p>
               </div>
-              <p className="text-sm text-muted">
-                Ask about cross-standard mapping, gap analysis, or a specific clause.
-              </p>
               <motion.div
                 className="flex w-full flex-col gap-2"
                 initial="hidden"
                 animate="show"
                 variants={{ show: { transition: { staggerChildren: 0.06 } } }}
               >
-                {SUGGESTIONS.map((suggestion) => (
+                {SUGGESTIONS.map(({ tag, question }) => (
                   <motion.button
-                    key={suggestion}
+                    key={question}
                     variants={{
                       hidden: { opacity: 0, y: 6 },
                       show: { opacity: 1, y: 0 },
                     }}
                     whileHover={{ y: -1 }}
                     whileTap={{ scale: 0.98 }}
-                    onClick={() => void submitQuestion(suggestion)}
-                    className="rounded-2xl border border-surface-border bg-surface-raised px-3.5 py-2.5 text-left text-xs text-muted transition-colors duration-[var(--dur-fast)] hover:border-accent/40 hover:text-accent"
+                    onClick={() => void submitQuestion(question)}
+                    className="group/suggestion flex items-center gap-3 rounded-2xl border border-surface-border bg-surface-raised px-3.5 py-3 text-left text-xs text-muted transition-colors duration-[var(--dur-fast)] hover:border-accent/40 hover:text-foreground"
                   >
-                    {suggestion}
+                    <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[10px] font-medium text-muted">
+                      {tag}
+                    </span>
+                    <span className="flex-1">{question}</span>
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      aria-hidden="true"
+                      className="h-3 w-3 shrink-0 text-muted opacity-0 transition-opacity group-hover/suggestion:opacity-100 group-hover/suggestion:text-accent"
+                    >
+                      <path
+                        d="M4 8h8M8.5 4.5 12 8l-3.5 3.5"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
                   </motion.button>
                 ))}
               </motion.div>
@@ -489,7 +520,7 @@ export default function ChatPage() {
             onChange={(event) => setInput(event.target.value)}
             disabled={loading}
             placeholder="Ask about a control, clause, or gap analysis…"
-            className="flex-1 rounded-full border border-surface-border bg-surface px-4 py-2.5 text-sm text-foreground transition-shadow placeholder:text-muted focus:border-accent/50 focus:ring-2 focus:ring-accent-soft focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex-1 rounded-full border border-control-border bg-surface px-4 py-2.5 text-sm text-foreground transition-shadow placeholder:text-muted focus:border-accent/50 focus:ring-2 focus:ring-accent-soft focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
           />
           <motion.button
             type="submit"

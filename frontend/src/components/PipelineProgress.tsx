@@ -16,6 +16,7 @@ function StepIcon({ state }: { state: "done" | "failed" | "active" | "pending" }
       <motion.svg
         viewBox="0 0 16 16"
         fill="none"
+        aria-hidden="true"
         className="h-3.5 w-3.5"
         initial={{ scale: 0.5, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -33,7 +34,7 @@ function StepIcon({ state }: { state: "done" | "failed" | "active" | "pending" }
   }
   if (state === "failed") {
     return (
-      <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="h-3.5 w-3.5">
         <path
           d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"
           stroke="currentColor"

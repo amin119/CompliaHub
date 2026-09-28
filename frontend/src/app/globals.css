@@ -40,6 +40,11 @@
   --surface: #f2eee6;
   --surface-raised: #ffffff;
   --surface-border: #e3ddd1;
+  /* A hairline divider is decorative and may sit below 3:1, but the border
+     that tells you "this is a text field" is the control itself — WCAG
+     1.4.11 wants 3:1 for that, and --surface-border is 1.27:1 against the
+     page. Form controls get their own, heavier line. */
+  --control-border: #94866d;
   --foreground: #141019;
   --muted: #6b6472;
 
@@ -59,7 +64,7 @@
          Deliberately outside the brand family so an analyst can tell at a
          glance that a machine wrote it, without it competing with the
          accent for "this is interactive". --- */
-  --ai: #0e8a9a;
+  --ai: #0b6470;
   --ai-soft: #dcf2f4;
 
   /* Primary fill: a tight two-stop of the brand itself, not a three-stop
@@ -100,21 +105,25 @@
   --surface: #1d1726;
   --surface-raised: #241c30;
   --surface-border: #2e2639;
+  --control-border: #77698d;
   --foreground: #f4f1ec;
   --muted: #a79fb2;
 
   --accent: #9b7bff;
   --accent-strong: #b79bff;
   --accent-contrast: #160f24;
-  --accent-soft: rgba(155, 123, 255, 0.16);
+  /* Opaque, not rgba: a translucent tint's contrast changes with whatever
+     surface it lands on, and accent-on-accent-soft dropped to 4.10:1 over
+     --surface-raised. Fixed values keep every chip at AA everywhere. */
+  --accent-soft: #2a213e;
 
   --mark: #ffd84d;
   --mark-strong: #ffc61f;
   --mark-contrast: #241b00;
-  --mark-soft: rgba(255, 216, 77, 0.15);
+  --mark-soft: #372e21;
 
   --ai: #4fd1c5;
-  --ai-soft: rgba(79, 209, 197, 0.16);
+  --ai-soft: #1d2f35;
 
   --cta-fill: linear-gradient(120deg, var(--accent) 0%, var(--accent-strong) 100%);
   --marquee-fill: linear-gradient(120deg, var(--mark) 0%, var(--mark-strong) 100%);
@@ -139,18 +148,19 @@
     --surface: #1d1726;
     --surface-raised: #241c30;
     --surface-border: #2e2639;
+    --control-border: #77698d;
     --foreground: #f4f1ec;
     --muted: #a79fb2;
     --accent: #9b7bff;
     --accent-strong: #b79bff;
     --accent-contrast: #160f24;
-    --accent-soft: rgba(155, 123, 255, 0.16);
+    --accent-soft: #2a213e;
     --mark: #ffd84d;
     --mark-strong: #ffc61f;
     --mark-contrast: #241b00;
-    --mark-soft: rgba(255, 216, 77, 0.15);
+    --mark-soft: #372e21;
     --ai: #4fd1c5;
-    --ai-soft: rgba(79, 209, 197, 0.16);
+    --ai-soft: #1d2f35;
     --cta-fill: linear-gradient(120deg, var(--accent) 0%, var(--accent-strong) 100%);
     --marquee-fill: linear-gradient(120deg, var(--mark) 0%, var(--mark-strong) 100%);
     --glow-top: radial-gradient(55% 40% at 50% 0%, rgba(155, 123, 255, 0.16) 0%, transparent 74%);
@@ -167,6 +177,7 @@
   --color-surface: var(--surface);
   --color-surface-raised: var(--surface-raised);
   --color-surface-border: var(--surface-border);
+  --color-control-border: var(--control-border);
   --color-muted: var(--muted);
 
   --color-accent: var(--accent);

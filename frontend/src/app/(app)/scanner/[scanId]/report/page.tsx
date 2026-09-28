@@ -16,7 +16,9 @@ import FindingStatusBadge from "@/components/FindingStatusBadge";
 import ComplianceDisclaimerBanner from "@/components/ComplianceDisclaimerBanner";
 import ReportDisclaimerBanner from "@/components/ReportDisclaimerBanner";
 import Skeleton from "@/components/Skeleton";
-import { buttonClasses } from "@/lib/ui";
+import StatGrid from "@/components/StatGrid";
+import BarRow from "@/components/BarRow";
+import { buttonClasses, CHIP_BASE } from "@/lib/ui";
 
 const FINDING_ASSESSMENT_LABELS: Record<string, string> = {
   likely_true_positive: "Likely true positive",
@@ -28,6 +30,26 @@ const CONTEXT_RELATIONSHIP_LABELS: Record<string, string> = {
   supports_concern: "Supports concern",
   contradicts_concern: "Contradicts concern",
   not_addressed: "Not addressed",
+};
+
+// Mirrors SeverityBadge's own red -> orange -> amber -> neutral scale, so
+// the bar color and the badge color next to it always agree.
+const SEVERITY_BAR_FILL: Record<string, string> = {
+  CRITICAL: "bg-red-500",
+  HIGH: "bg-orange-500",
+  MEDIUM: "bg-amber-500",
+  LOW: "bg-muted",
+  INFORMATIONAL: "bg-muted",
+};
+
+// Same left-border-by-severity treatment the scan detail table uses, so a
+// page of findings reads at a glance in both places.
+const SEVERITY_BORDER: Record<string, string> = {
+  CRITICAL: "border-l-red-500",
+  HIGH: "border-l-orange-500",
+  MEDIUM: "border-l-amber-500",
+  LOW: "border-l-surface-border",
+  INFORMATIONAL: "border-l-surface-border",
 };
 
 /**
@@ -135,14 +157,30 @@ export default function ScanReportPage() {
           </button>
         </div>
 
-        <header className="mb-4">
-          <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
-            {summary.original_filename}
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            Compliance evidence report, generated{" "}
-            {new Date(summary.generated_at).toLocaleString()}
-          </p>
+        <header className="mb-5 flex items-start gap-3.5">
+          <span
+            aria-hidden="true"
+            className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-accent-soft text-accent print:hidden"
+          >
+            <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
+              <path
+                d="M7 3.5h7l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19V5A1.5 1.5 0 0 1 7 3.5Z"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinejoin="round"
+              />
+              <path d="M9 13h6M9 16h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </span>
+          <div>
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
+              {summary.original_filename}
+            </h1>
+            <p className="mt-1 text-sm text-muted">
+              Compliance evidence report, generated{" "}
+              {new Date(summary.generated_at).toLocaleString()}
+            </p>
+          </div>
         </header>
 
         <ReportDisclaimerBanner />
@@ -155,145 +193,120 @@ export default function ScanReportPage() {
           </div>
         )}
 
-        <section className="mb-6 rounded-2xl border border-surface-border bg-surface p-4">
-          <div className="flex flex-wrap gap-x-6 gap-y-3 text-sm">
-            <div>
-              <p className="text-xs text-muted">Files scanned</p>
-              <p className="font-medium text-foreground">{summary.file_count}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted">Languages</p>
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {summary.detected_languages.length === 0 ? (
-                  <span className="text-muted">None detected</span>
+        <StatGrid
+          stats={[
+            { label: "Files scanned", value: summary.file_count },
+            {
+              label: "Languages",
+              value: summary.detected_languages.length,
+              content:
+                summary.detected_languages.length === 0 ? (
+                  <span className="text-xs text-muted">None detected</span>
                 ) : (
                   summary.detected_languages.map((language) => (
-                    <span
-                      key={language}
-                      className="rounded-full border border-surface-border px-2.5 py-0.5 text-xs text-foreground"
-                    >
+                    <span key={language} className={CHIP_BASE}>
                       {language}
                     </span>
                   ))
-                )}
-              </div>
-            </div>
-            <div>
-              <p className="text-xs text-muted">Frameworks</p>
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {summary.detected_frameworks.length === 0 ? (
-                  <span className="text-muted">None detected</span>
+                ),
+            },
+            {
+              label: "Frameworks",
+              value: summary.detected_frameworks.length,
+              content:
+                summary.detected_frameworks.length === 0 ? (
+                  <span className="text-xs text-muted">None detected</span>
                 ) : (
                   summary.detected_frameworks.map((framework) => (
-                    <span
-                      key={framework}
-                      className="rounded-full border border-surface-border px-2.5 py-0.5 text-xs text-foreground"
-                    >
+                    <span key={framework} className={CHIP_BASE}>
                       {framework}
                     </span>
                   ))
-                )}
-              </div>
+                ),
+            },
+            { label: "Total findings", value: findingDetails.length },
+          ]}
+        />
+
+        <section className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="rounded-2xl border border-surface-border bg-surface-raised p-4">
+            <p className="mb-3 text-xs font-medium text-muted">Findings by severity</p>
+            <div className="flex flex-col">
+              {summary.severity_counts.map(({ severity, count }) => (
+                <BarRow
+                  key={severity}
+                  label={severity}
+                  count={count}
+                  max={Math.max(1, ...summary.severity_counts.map((s) => s.count))}
+                  barClassName={SEVERITY_BAR_FILL[severity] ?? "bg-muted"}
+                  labelSlot={<SeverityBadge severity={severity} />}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-surface-border bg-surface-raised p-4">
+            <p className="mb-3 text-xs font-medium text-muted">Findings by framework</p>
+            <div className="flex flex-col">
+              {summary.framework_counts.map(({ framework, count }) => (
+                <BarRow
+                  key={framework ?? "general"}
+                  label={framework ?? "General"}
+                  count={count}
+                  max={Math.max(1, ...summary.framework_counts.map((f) => f.count))}
+                  barClassName="bg-accent"
+                />
+              ))}
             </div>
           </div>
         </section>
 
-        <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div className="rounded-2xl border border-surface-border bg-surface p-4">
-            <p className="mb-2 text-xs font-medium text-muted">Findings by severity</p>
-            <table className="w-full text-left text-sm">
-              <tbody>
-                {summary.severity_counts.map(({ severity, count }) => (
-                  <tr key={severity} className="border-t border-surface-border first:border-0">
-                    <td className="py-1.5 pr-2">
-                      <SeverityBadge severity={severity} />
-                    </td>
-                    <td className="py-1.5 text-right font-medium text-foreground">{count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="rounded-2xl border border-surface-border bg-surface p-4">
-            <p className="mb-2 text-xs font-medium text-muted">Findings by status</p>
-            <table className="w-full text-left text-sm">
-              <tbody>
-                {summary.status_counts.map(({ status, count }) => (
-                  <tr key={status} className="border-t border-surface-border first:border-0">
-                    <td className="py-1.5 pr-2">
-                      <FindingStatusBadge status={status} />
-                    </td>
-                    <td className="py-1.5 text-right font-medium text-foreground">{count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="rounded-2xl border border-surface-border bg-surface p-4">
-            <p className="mb-2 text-xs font-medium text-muted">Findings by framework</p>
-            <table className="w-full text-left text-sm">
-              <tbody>
-                {summary.framework_counts.map(({ framework, count }) => (
-                  <tr
-                    key={framework ?? "general"}
-                    className="border-t border-surface-border first:border-0"
-                  >
-                    <td className="py-1.5 pr-2">
-                      <span className="rounded-full border border-surface-border px-2.5 py-0.5 text-xs text-foreground">
-                        {framework ?? "General"}
-                      </span>
-                    </td>
-                    <td className="py-1.5 text-right font-medium text-foreground">{count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <section className="mb-6 rounded-2xl border border-surface-border bg-surface-raised p-4">
+          <p className="mb-3 text-xs font-medium text-muted">Findings by status</p>
+          <div className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
+            {summary.status_counts.map(({ status, count }) => (
+              <BarRow
+                key={status}
+                label={status}
+                count={count}
+                max={Math.max(1, ...summary.status_counts.map((s) => s.count))}
+                barClassName="bg-accent"
+                labelSlot={<FindingStatusBadge status={status} />}
+                labelWidthClassName="w-44"
+              />
+            ))}
           </div>
         </section>
 
-        <section className="mb-6 rounded-2xl border border-surface-border bg-surface p-4">
-          <p className="mb-3 text-xs font-medium text-muted">Human review coverage</p>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <div>
-              <p className="text-xs text-muted">Total findings</p>
-              <p className="text-lg font-medium text-foreground">
-                {summary.review_coverage.total_findings}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted">Reviewed</p>
-              <p className="text-lg font-medium text-foreground">
-                {summary.review_coverage.reviewed_findings}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted">Review actions recorded</p>
-              <p className="text-lg font-medium text-foreground">
-                {summary.review_coverage.total_reviews}
-              </p>
-            </div>
-            <div className="rounded-xl bg-amber-50 px-3 py-2 dark:bg-amber-950/40">
-              <p className="text-xs text-amber-800 dark:text-amber-300">
-                Flagged, not yet reviewed
-              </p>
-              <p className="text-lg font-medium text-amber-900 dark:text-amber-200">
-                {summary.review_coverage.requires_human_review_unreviewed_count}
-              </p>
-            </div>
-          </div>
-        </section>
+        <p className="mb-3 text-xs font-medium text-muted">Human review coverage</p>
+        <StatGrid
+          stats={[
+            { label: "Total findings", value: summary.review_coverage.total_findings },
+            { label: "Reviewed", value: summary.review_coverage.reviewed_findings },
+            { label: "Review actions recorded", value: summary.review_coverage.total_reviews },
+            {
+              label: "Flagged, not yet reviewed",
+              content: (
+                <span className="text-lg font-semibold text-amber-700 dark:text-amber-400">
+                  {summary.review_coverage.requires_human_review_unreviewed_count}
+                </span>
+              ),
+            },
+          ]}
+        />
 
         {hasIso27001Findings && <ComplianceDisclaimerBanner />}
 
         <section>
-          <p className="mb-3 text-xs font-medium text-muted">
-            All findings ({findingDetails.length})
-          </p>
+          <h2 className="font-display mb-3 text-lg font-semibold text-foreground">
+            All findings <span className="text-muted">({findingDetails.length})</span>
+          </h2>
           <div className="flex flex-col gap-3">
             {findingDetails.map((finding) => (
               <div
                 key={finding.id}
-                className="break-inside-avoid-page rounded-2xl border border-surface-border bg-surface p-4 text-xs"
+                className={`break-inside-avoid-page rounded-2xl border border-l-4 border-surface-border bg-surface-raised p-4 text-xs ${
+                  SEVERITY_BORDER[finding.severity] ?? "border-l-surface-border"
+                }`}
               >
                 <div className="flex flex-wrap items-center gap-1.5">
                   <SeverityBadge severity={finding.severity} />

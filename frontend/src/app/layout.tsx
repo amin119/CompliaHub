@@ -65,10 +65,18 @@ export default function RootLayout({
       className={`${poppins.variable} ${inter.variable} antialiased`}
       suppressHydrationWarning
     >
-      <Script id="theme-init" strategy="beforeInteractive">
-        {themeInitScript}
-      </Script>
+      {/* Inside <body>, not as a sibling of it — a <script> as a direct
+          child of <html> is invalid HTML nesting and threw a real
+          "cannot be a child of <html>" hydration error in the browser
+          console (dev mode only surfaces it; production silently ate it).
+          `beforeInteractive` still injects and runs this before hydration
+          regardless of where in the tree it's written — that's the whole
+          point of the strategy — so moving it here changes nothing about
+          its timing, only fixes the invalid nesting. */}
       <body className="min-h-screen">
+        <Script id="theme-init" strategy="beforeInteractive">
+          {themeInitScript}
+        </Script>
         <MotionProvider>{children}</MotionProvider>
       </body>
     </html>
