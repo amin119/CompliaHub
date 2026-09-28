@@ -25,6 +25,8 @@ import FindingStatusBadge, { FINDING_STATUSES, findingStatusLabel } from "@/comp
 import ComplianceDisclaimerBanner from "@/components/ComplianceDisclaimerBanner";
 import PipelineProgress, { type PipelineStage } from "@/components/PipelineProgress";
 import Skeleton from "@/components/Skeleton";
+import StatGrid from "@/components/StatGrid";
+import { buttonClasses, filterPillClasses, CHIP_BASE } from "@/lib/ui";
 
 const TERMINAL_STATUSES = ["ready", "failed"];
 const POLL_INTERVAL_MS = 3000;
@@ -302,7 +304,7 @@ export default function ScanDetailPage() {
           className="flex flex-col items-center gap-2 text-center"
         >
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400">
-            <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4">
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="h-4 w-4">
               <path
                 d="M8 5v3.5M8 11h.01"
                 stroke="currentColor"
@@ -358,9 +360,30 @@ export default function ScanDetailPage() {
   return (
     <div className="flex flex-1 flex-col items-center bg-background">
       <div className="flex w-full max-w-3xl flex-1 flex-col px-4 py-6 sm:py-8">
-        <header className="mb-6">
+        <header className="mb-6 flex items-start gap-3.5">
+          <span
+            aria-hidden="true"
+            className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-accent-soft text-accent"
+          >
+            <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
+              <path
+                d="M6 3.5h9l3 3V19a1.5 1.5 0 0 1-1.5 1.5h-10.5A1.5 1.5 0 0 1 4.5 19V5A1.5 1.5 0 0 1 6 3.5Z"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M9.5 9 8 10.5 9.5 12M14.5 9 16 10.5 14.5 12M12.5 8.5l-1 5"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+          <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-display text-2xl font-normal tracking-tight text-foreground">
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
               {scan.original_filename}
             </h1>
             <StatusBadge
@@ -418,62 +441,64 @@ export default function ScanDetailPage() {
               ISO 27001 mapping failed: {scan.iso27001_error_message}
             </p>
           )}
+          </div>
         </header>
 
         <PipelineProgress stages={buildPipelineStages(scan)} />
 
         {scan.status === "ready" && (
           <>
-            <section className="mb-6 rounded-2xl border border-surface-border bg-surface p-4">
-              <div className="flex flex-wrap gap-x-6 gap-y-3 text-sm">
-                <div>
-                  <p className="text-xs text-muted">Files scanned</p>
-                  <p className="font-medium text-foreground">{scan.file_count}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted">Languages</p>
-                  <div className="mt-1 flex flex-wrap gap-1.5">
-                    {scan.detected_languages.length === 0 && (
-                      <span className="text-muted">None detected</span>
-                    )}
-                    {scan.detected_languages.map((language) => (
-                      <span key={language} className="rounded-full bg-accent-soft px-2.5 py-0.5 text-xs text-accent">
-                        {language}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs text-muted">Frameworks</p>
-                  <div className="mt-1 flex flex-wrap gap-1.5">
-                    {scan.detected_frameworks.length === 0 && (
-                      <span className="text-muted">None detected</span>
-                    )}
-                    {scan.detected_frameworks.map((framework) => (
-                      <span key={framework} className="rounded-full bg-surface-blue px-2.5 py-0.5 text-xs text-foreground">
-                        {framework}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                {scan.findings_status === "ready" && (
-                  <div>
-                    <p className="text-xs text-muted">Findings</p>
-                    <div className="mt-1 flex flex-wrap gap-1.5">
-                      {severityCounts.length === 0 && (
-                        <span className="text-muted">None found</span>
-                      )}
-                      {severityCounts.map(({ severity, count }) => (
-                        <span key={severity} className="inline-flex items-center gap-1">
-                          <SeverityBadge severity={severity} />
-                          <span className="text-xs text-muted">×{count}</span>
+            <StatGrid
+              stats={[
+                { label: "Files scanned", value: scan.file_count },
+                {
+                  label: "Languages",
+                  value: scan.detected_languages.length,
+                  content:
+                    scan.detected_languages.length === 0 ? (
+                      <span className="text-xs text-muted">None detected</span>
+                    ) : (
+                      scan.detected_languages.map((language) => (
+                        <span key={language} className={CHIP_BASE}>
+                          {language}
                         </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </section>
+                      ))
+                    ),
+                },
+                {
+                  label: "Frameworks",
+                  value: scan.detected_frameworks.length,
+                  content:
+                    scan.detected_frameworks.length === 0 ? (
+                      <span className="text-xs text-muted">None detected</span>
+                    ) : (
+                      scan.detected_frameworks.map((framework) => (
+                        <span key={framework} className={CHIP_BASE}>
+                          {framework}
+                        </span>
+                      ))
+                    ),
+                },
+                ...(scan.findings_status === "ready"
+                  ? [
+                      {
+                        label: "Findings",
+                        content:
+                          severityCounts.length === 0 ? (
+                            <span className="text-xs text-muted">None found</span>
+                          ) : (
+                            severityCounts.map(({ severity, count }) => (
+                              <span key={severity} className="inline-flex items-center gap-1">
+                                <SeverityBadge severity={severity} />
+                                <span className="text-xs text-muted">×{count}</span>
+                              </span>
+                            ))
+                          ),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
 
             <div className="mb-4 flex gap-1 border-b border-surface-border">
               {(
@@ -508,11 +533,7 @@ export default function ScanDetailPage() {
                   <button
                     type="button"
                     onClick={() => setFilterType(null)}
-                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                      filterType === null
-                        ? "border-accent bg-accent-soft text-accent"
-                        : "border-surface-border text-muted hover:text-foreground"
-                    }`}
+                    className={filterPillClasses(filterType === null)}
                   >
                     All
                   </button>
@@ -521,11 +542,7 @@ export default function ScanDetailPage() {
                       key={type}
                       type="button"
                       onClick={() => setFilterType(type)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                        filterType === type
-                          ? "border-accent bg-accent-soft text-accent"
-                          : "border-surface-border text-muted hover:text-foreground"
-                      }`}
+                      className={filterPillClasses(filterType === type)}
                     >
                       {COMPONENT_TYPE_LABELS[type] ?? type}
                     </button>
@@ -576,11 +593,7 @@ export default function ScanDetailPage() {
                     <button
                       type="button"
                       onClick={() => setFrameworkFilter(null)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                        frameworkFilter === null
-                          ? "border-accent bg-accent-soft text-accent"
-                          : "border-surface-border text-muted hover:text-foreground"
-                      }`}
+                      className={filterPillClasses(frameworkFilter === null)}
                     >
                       All
                     </button>
@@ -589,11 +602,7 @@ export default function ScanDetailPage() {
                         key={framework}
                         type="button"
                         onClick={() => setFrameworkFilter(framework)}
-                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                          frameworkFilter === framework
-                            ? "border-accent bg-accent-soft text-accent"
-                            : "border-surface-border text-muted hover:text-foreground"
-                        }`}
+                        className={filterPillClasses(frameworkFilter === framework)}
                       >
                         {framework}
                       </button>
@@ -606,11 +615,7 @@ export default function ScanDetailPage() {
                     <button
                       type="button"
                       onClick={() => setStatusFilter(null)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                        statusFilter === null
-                          ? "border-accent bg-accent-soft text-accent"
-                          : "border-surface-border text-muted hover:text-foreground"
-                      }`}
+                      className={filterPillClasses(statusFilter === null)}
                     >
                       All statuses
                     </button>
@@ -619,11 +624,7 @@ export default function ScanDetailPage() {
                         key={status}
                         type="button"
                         onClick={() => setStatusFilter(status)}
-                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                          statusFilter === status
-                            ? "border-accent bg-accent-soft text-accent"
-                            : "border-surface-border text-muted hover:text-foreground"
-                        }`}
+                        className={filterPillClasses(statusFilter === status)}
                       >
                         {findingStatusLabel(status)}
                       </button>
@@ -686,6 +687,7 @@ export default function ScanDetailPage() {
                                     <motion.svg
                                       viewBox="0 0 16 16"
                                       fill="none"
+                                      aria-hidden="true"
                                       className="mt-0.5 h-3 w-3 shrink-0 text-muted"
                                       animate={{ rotate: expanded ? 90 : 0 }}
                                       transition={{ duration: 0.15 }}
@@ -705,7 +707,11 @@ export default function ScanDetailPage() {
                                   </div>
                                 </td>
                                 <td className="px-3 py-2">
-                                  <span className="rounded-full bg-surface-blue px-2.5 py-0.5 text-xs text-foreground">
+                                  {/* Outlined rather than filled: the row
+                                      itself fills with bg-surface on hover
+                                      and while expanded, so a filled chip
+                                      would disappear into it. */}
+                                  <span className="rounded-full border border-surface-border px-2.5 py-0.5 text-xs whitespace-nowrap text-foreground">
                                     {finding.framework ?? "General"}
                                   </span>
                                 </td>
@@ -741,7 +747,7 @@ export default function ScanDetailPage() {
                                                       (e) => e.source_type === "llm_reasoning",
                                                     )
                                                       ? "border border-surface-border text-muted hover:text-accent"
-                                                      : "bg-cta text-accent-foreground hover:opacity-90"
+                                                      : "bg-cta text-accent-contrast hover:opacity-90"
                                                   }`}
                                                 >
                                                   {validatingFindingIds.has(finding.id) ? (
@@ -777,7 +783,7 @@ export default function ScanDetailPage() {
                                                       (e) => e.source_type === "llm_remediation",
                                                     )
                                                       ? "border border-surface-border text-muted hover:text-accent"
-                                                      : "bg-cta text-accent-foreground hover:opacity-90"
+                                                      : "bg-cta text-accent-contrast hover:opacity-90"
                                                   }`}
                                                 >
                                                   {remediatingFindingIds.has(finding.id) ? (
@@ -866,7 +872,7 @@ export default function ScanDetailPage() {
                                                           key={evidence.id}
                                                           className={`rounded-xl border p-2.5 ${
                                                             isAiGenerated
-                                                              ? "border-purple/30 bg-purple/5"
+                                                              ? "border-ai/30 bg-ai/5"
                                                               : "border-surface-border bg-surface"
                                                           }`}
                                                         >
@@ -888,7 +894,7 @@ export default function ScanDetailPage() {
                                                               <span
                                                                 className={`rounded-full px-1.5 py-0 ${
                                                                   isAiGenerated
-                                                                    ? "bg-purple/15 text-purple"
+                                                                    ? "bg-ai/15 text-ai"
                                                                     : "bg-accent-soft text-accent"
                                                                 }`}
                                                               >
@@ -933,7 +939,7 @@ export default function ScanDetailPage() {
                                                                             !line.startsWith("---")
                                                                           ? "bg-red-500/10 text-red-700 dark:text-red-400"
                                                                           : line.startsWith("@@")
-                                                                            ? "text-purple"
+                                                                            ? "text-ai"
                                                                             : "text-foreground"
                                                                     }
                                                                   >
@@ -1042,7 +1048,7 @@ export default function ScanDetailPage() {
                                                         })
                                                       }
                                                       placeholder="Reviewer (self-reported)"
-                                                      className="min-w-0 flex-1 rounded-lg border border-surface-border bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-accent/50 focus:outline-none"
+                                                      className="min-w-0 flex-1 rounded-lg border border-control-border bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-accent/50 focus:outline-none"
                                                     />
                                                     <select
                                                       value={
@@ -1055,7 +1061,7 @@ export default function ScanDetailPage() {
                                                           decision: event.target.value,
                                                         })
                                                       }
-                                                      className="rounded-lg border border-surface-border bg-background px-2.5 py-1.5 text-xs text-foreground focus:border-accent/50 focus:outline-none"
+                                                      className="rounded-lg border border-control-border bg-background px-2.5 py-1.5 text-xs text-foreground focus:border-accent/50 focus:outline-none"
                                                     >
                                                       {FINDING_STATUSES.map((s) => (
                                                         <option key={s} value={s}>
@@ -1075,7 +1081,7 @@ export default function ScanDetailPage() {
                                                     }
                                                     placeholder="Justification for this decision (required)…"
                                                     rows={2}
-                                                    className="w-full resize-none rounded-lg border border-surface-border bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-accent/50 focus:outline-none"
+                                                    className="w-full resize-none rounded-lg border border-control-border bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-accent/50 focus:outline-none"
                                                   />
                                                   {reviewNote[finding.id] && (
                                                     <p className="text-red-600 dark:text-red-400">
@@ -1085,7 +1091,10 @@ export default function ScanDetailPage() {
                                                   <button
                                                     type="submit"
                                                     disabled={submittingReviewId === finding.id}
-                                                    className="self-start rounded-full bg-cta px-3 py-1 text-xs font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                                                    className={buttonClasses({
+                                                      size: "sm",
+                                                      className: "self-start",
+                                                    })}
                                                   >
                                                     {submittingReviewId === finding.id
                                                       ? "Submitting…"

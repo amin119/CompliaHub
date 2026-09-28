@@ -5,6 +5,8 @@ import { AnimatePresence, motion } from "motion/react";
 import { uploadDocument, getDocument, type DocumentStatus } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
 import UploadDropzone from "@/components/UploadDropzone";
+import PageHeader from "@/components/PageHeader";
+import { CHIP_BASE } from "@/lib/ui";
 
 const TERMINAL_STATUSES = ["ready", "failed"];
 const POLL_INTERVAL_MS = 3000;
@@ -14,9 +16,15 @@ const listVariants = {
   show: { transition: { staggerChildren: 0.05 } },
 };
 
+/** A short, honest chip — the file's own extension, nothing inferred. */
+function fileExtension(filename: string): string | null {
+  const match = /\.([a-z0-9]+)$/i.exec(filename);
+  return match ? match[1].toUpperCase() : null;
+}
+
 function DocumentIcon({ className = "" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={className}>
       <path
         d="M7 3.5h7l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19V5A1.5 1.5 0 0 1 7 3.5Z"
         stroke="currentColor"
@@ -75,14 +83,11 @@ export default function DocumentsPage() {
   return (
     <div className="flex flex-1 flex-col items-center bg-background">
       <div className="flex w-full max-w-2xl flex-1 flex-col px-4 py-6 sm:py-8">
-        <header className="mb-6">
-          <h1 className="font-display text-2xl font-normal tracking-tight text-foreground">
-            Documents
-          </h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Upload a PDF or DOCX standard to ingest it into the knowledge graph.
-          </p>
-        </header>
+        <PageHeader
+          icon={<DocumentIcon className="h-5 w-5" />}
+          title="Documents"
+          description="Upload a PDF or DOCX standard to ingest it into the knowledge graph."
+        />
 
         <UploadDropzone
           accept=".pdf,.docx"
@@ -106,17 +111,28 @@ export default function DocumentsPage() {
         </AnimatePresence>
 
         {documents.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-surface-border py-10 text-center">
-            <DocumentIcon className="h-8 w-8 text-muted opacity-60" />
-            <p className="text-sm text-muted">No documents uploaded yet this session.</p>
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-surface-border py-12 text-center">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-accent-soft text-accent ring-8 ring-accent-soft/40">
+              <DocumentIcon className="h-6 w-6" />
+            </span>
+            <div>
+              <p className="text-sm font-medium text-foreground">No documents yet</p>
+              <p className="mt-0.5 text-sm text-muted">
+                Uploaded standards will appear here, this session.
+              </p>
+            </div>
           </div>
         ) : (
-          <motion.ul
-            className="flex flex-col gap-3"
-            variants={listVariants}
-            initial="hidden"
-            animate="show"
-          >
+          <>
+            <p className="mb-3 text-xs font-medium text-muted">
+              Uploaded this session ({documents.length})
+            </p>
+            <motion.ul
+              className="flex flex-col gap-3"
+              variants={listVariants}
+              initial="hidden"
+              animate="show"
+            >
             <AnimatePresence initial={false}>
               {documents.map((doc) => (
                 <motion.li
@@ -127,7 +143,7 @@ export default function DocumentsPage() {
                     show: { opacity: 1, y: 0 },
                   }}
                   exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                  className="card-interactive rounded-2xl border border-surface-border bg-surface p-4"
+                  className="card-interactive rounded-2xl border border-surface-border bg-surface-raised p-4"
                 >
                   <div className="flex items-center gap-3">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
@@ -136,6 +152,9 @@ export default function DocumentsPage() {
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                       {doc.filename}
                     </span>
+                    {fileExtension(doc.filename) && (
+                      <span className={CHIP_BASE}>{fileExtension(doc.filename)}</span>
+                    )}
                     <StatusBadge status={doc.status} />
                   </div>
                   {doc.status === "ready" && (
@@ -160,7 +179,8 @@ export default function DocumentsPage() {
                 </motion.li>
               ))}
             </AnimatePresence>
-          </motion.ul>
+            </motion.ul>
+          </>
         )}
       </div>
     </div>

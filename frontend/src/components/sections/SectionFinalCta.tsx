@@ -1,64 +1,69 @@
-import Link from "next/link";
+import MagneticLink from "@/components/landing/MagneticLink";
+import MaskedLines from "@/components/landing/MaskedLines";
 import Reveal from "@/components/landing/Reveal";
-
-const STANDARDS = [
-  { code: "27001", label: "ISO 27001", position: "top-8 left-6 -rotate-12 sm:left-14" },
-  { code: "42001", label: "ISO 42001", position: "top-10 right-6 rotate-12 sm:right-14" },
-  { code: "GDPR", label: "GDPR", position: "bottom-10 left-10 rotate-6 sm:left-24" },
-];
+import MarkSweep from "@/components/landing/MarkSweep";
+import { buttonClasses } from "@/lib/ui";
 
 /**
- * The reference design scatters little face-avatar icons around this
- * headline and closes with Google Play / App Store badges — this platform
- * has no mobile app, so the avatars are replaced with small badges naming
- * the standards CompliaHub can actually answer questions about, and the
- * two real routes replace the store badges. The badges name the
- * *standards*, not a claim that the platform itself is certified against
- * them — an important distinction this project has been careful about
- * throughout (no fabricated certifications).
+ * The close. One of only two places on the page that gets the ambient glow
+ * (the other is the hero), and the last chance to make the Scan half
+ * visible — so it closes on two CTAs, one per half of the product, rather
+ * than the single "Explore the platform" button that used to be here.
+ *
+ * The three standards named below are the ones CompliaHub can actually
+ * answer questions about. They name the *standards*, never a claim that the
+ * platform is certified against them.
  */
+
+const STANDARDS = ["ISO 27001", "ISO 42001", "GDPR"];
+
 export default function SectionFinalCta() {
   return (
-    <section className="mx-auto w-full max-w-4xl px-4 pb-20 sm:px-8">
-      <Reveal className="bg-surface-blue relative overflow-hidden rounded-3xl px-6 py-16 text-center">
-        {STANDARDS.map((standard) => (
-          <StandardBadge key={standard.code} {...standard} />
-        ))}
+    <section className="relative overflow-hidden px-4 py-24 sm:px-8 sm:py-32">
+      <div
+        aria-hidden="true"
+        className="bg-ambient-glow pointer-events-none absolute inset-0 -z-10"
+      />
 
-        <h2 className="font-display relative mx-auto max-w-lg text-3xl leading-tight font-bold text-foreground sm:text-4xl">
-          Get ready to navigate compliance with confidence
-        </h2>
-        <p className="relative mx-auto mt-4 max-w-md text-sm text-muted">
-          Upload your standards for free and start asking real compliance questions today.
-        </p>
-        <div className="relative mt-8 flex flex-wrap items-center justify-center gap-4">
-          <Link
-            href="/chat"
-            className="rounded-full bg-cta px-7 py-3.5 text-sm font-semibold text-white shadow-sm transition-transform hover:scale-105"
-          >
-            Explore the platform
-          </Link>
-          <Link
-            href="/documents"
-            className="rounded-full border border-surface-border bg-surface px-7 py-3.5 text-sm font-semibold text-foreground transition-colors hover:border-accent hover:text-accent"
-          >
-            Upload a standard
-          </Link>
-        </div>
-      </Reveal>
+      <div className="mx-auto max-w-5xl text-center">
+        <MaskedLines
+          as="h2"
+          className="font-display text-h1 font-semibold text-foreground"
+          lines={["Stop guessing.", <MarkSweep key="citing">Start citing.</MarkSweep>]}
+        />
+
+        <Reveal>
+          <p className="measure text-lead mx-auto mt-8 text-muted">
+            Upload your standards, ask the questions you&rsquo;d otherwise ask a consultant, and
+            point the scanner at the code you&rsquo;re about to ship.
+          </p>
+        </Reveal>
+
+        <Reveal delay={0.08}>
+          <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
+            <MagneticLink href="/chat" cursorLabel="Ask" className={buttonClasses({ size: "lg" })}>
+              Ask a question
+            </MagneticLink>
+            <MagneticLink
+              href="/scanner"
+              cursorLabel="Scan"
+              className={buttonClasses({ variant: "secondary", size: "lg" })}
+            >
+              Scan a repo
+            </MagneticLink>
+          </div>
+        </Reveal>
+
+        <Reveal delay={0.12}>
+          <div className="mt-12 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 border-t border-surface-border pt-8">
+            {STANDARDS.map((standard) => (
+              <span key={standard} className="font-display text-lg font-semibold text-muted">
+                {standard}
+              </span>
+            ))}
+          </div>
+        </Reveal>
+      </div>
     </section>
-  );
-}
-
-function StandardBadge({ code, label, position }: { code: string; label: string; position: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={`absolute hidden h-14 w-14 flex-col items-center justify-center rounded-2xl bg-surface text-center shadow-sm sm:flex ${position}`}
-      title={label}
-    >
-      <span className="text-[10px] font-bold tracking-tight text-accent">{code}</span>
-      <span className="mt-0.5 h-1 w-5 rounded-full bg-cta" />
-    </span>
   );
 }

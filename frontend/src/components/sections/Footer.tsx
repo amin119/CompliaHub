@@ -2,26 +2,32 @@ import Link from "next/link";
 import Logo from "@/components/Logo";
 
 /**
- * The reference design's footer has an email-subscribe input, a contact
- * email/phone, and social icons — dropped here rather than faked: this
- * project has no newsletter backend, no public support line, and no real
- * social accounts, and a footer full of dead or fake affordances would be
- * worse than a shorter, honest one. The two-column link layout (matching
- * the reference's multi-column structure) only lists routes/anchors that
- * actually exist.
+ * Deliberately short. This project has no newsletter backend, no public
+ * support line and no social accounts, and a footer full of dead affordances
+ * would be worse than an honest one — so every link here goes somewhere that
+ * actually exists.
+ *
+ * Section headings are sentence case rather than tracked-out uppercase: the
+ * ALL-CAPS micro-label was retired across this redesign.
  */
 const COLUMNS = [
   {
-    heading: "Platform",
+    heading: "Ask",
     links: [
       { label: "Chat", href: "/chat" },
       { label: "Documents", href: "/documents" },
     ],
   },
   {
+    heading: "Scan",
+    links: [
+      { label: "Scanner", href: "/scanner" },
+      { label: "How it works", href: "#how-it-works" },
+    ],
+  },
+  {
     heading: "Explore",
     links: [
-      { label: "Showcase", href: "#showcase" },
       { label: "Features", href: "#features" },
       { label: "Use cases", href: "#use-cases" },
     ],
@@ -30,29 +36,27 @@ const COLUMNS = [
 
 export default function Footer() {
   return (
-    <footer className="border-t border-surface-border px-4 py-14 sm:px-8">
-      <div className="mx-auto grid max-w-6xl gap-10 sm:grid-cols-[1.3fr_1fr_1fr]">
+    <footer className="border-t border-surface-border px-4 py-16 sm:px-8">
+      <div className="mx-auto grid max-w-7xl gap-12 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr]">
         <div>
           <div className="flex items-center gap-2 text-foreground">
             <Logo className="h-5 w-5 text-accent" />
-            <span className="text-base font-bold">CompliaHub</span>
+            <span className="font-display text-base font-semibold">CompliaHub</span>
           </div>
-          <p className="mt-3 max-w-xs text-sm text-muted">
-            An agentic GraphRAG platform for ISO 27001, ISO 42001, and GDPR compliance
-            intelligence — every answer grounded in evidence.
+          <p className="measure mt-4 text-sm leading-relaxed text-muted">
+            Compliance answers grounded in your own standards, and a scanner that checks your
+            code against them. Nothing is marked compliant without a person saying so.
           </p>
         </div>
         {COLUMNS.map((column) => (
           <div key={column.heading}>
-            <p className="text-xs font-bold tracking-wide text-foreground uppercase">
-              {column.heading}
-            </p>
+            <p className="font-display text-sm font-semibold text-foreground">{column.heading}</p>
             <ul className="mt-4 flex flex-col gap-2.5">
               {column.links.map((link) => (
                 <li key={link.href}>
                   <Link
                     href={link.href}
-                    className="text-sm text-muted transition-colors hover:text-foreground"
+                    className="text-sm text-muted transition-colors duration-[var(--dur-fast)] hover:text-foreground"
                   >
                     {link.label}
                   </Link>
@@ -62,7 +66,7 @@ export default function Footer() {
           </div>
         ))}
       </div>
-      <p className="mx-auto mt-12 max-w-6xl text-center text-xs text-muted">
+      <p className="mx-auto mt-16 max-w-7xl text-xs text-muted">
         CompliaHub — all rights reserved.
       </p>
     </footer>

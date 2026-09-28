@@ -1,70 +1,114 @@
-import Link from "next/link";
-import Eyebrow from "./Eyebrow";
-import Logo from "@/components/Logo";
 import Reveal from "@/components/landing/Reveal";
-import AnimatedConversation from "@/components/landing/AnimatedConversation";
+import RevealText from "@/components/landing/RevealText";
 
 /**
- * The reference design pairs a headline with two marketing stats ("32k
- * Trusted job recruiter", "1200+ Best Partner") — this platform has no
- * such numbers to report, and inventing them would be exactly the kind
- * of fabricated statistic this project has consistently refused to ship.
- * The two stat slots are kept (matching the reference's layout) but filled
- * with real, verifiable architectural facts instead of marketing numbers.
+ * A bento grid rather than a row of identical cards: tiles are deliberately
+ * different sizes so the eye has somewhere to go, and each one is tagged
+ * with which half of the product it belongs to — that tag encodes real
+ * structure (Ask / Scan / both), which is the only reason a small label
+ * survives in this design at all.
+ *
+ * Every tile is a capability that exists today. Nothing aspirational.
  */
-const STATS = [
-  { value: "3", label: "Retrieval strategies" },
-  { value: "100%", label: "Answers cite a source" },
+
+type Tile = {
+  half: "Ask" | "Scan" | "Both";
+  title: string;
+  body: string;
+  span?: string;
+};
+
+const TILES: Tile[] = [
+  {
+    half: "Ask",
+    title: "Answers that cite their source",
+    body: "Every claim carries the clause it came from, and one click opens the real text of that clause from your own ingested standard.",
+    span: "md:col-span-2",
+  },
+  {
+    half: "Ask",
+    title: "An inspectable evidence graph",
+    body: "See the entities and relationships an answer was actually built from.",
+  },
+  {
+    half: "Scan",
+    title: "Audit a whole repository",
+    body: "Upload a .zip and get security, GDPR and AI-governance findings, each pinned to a real file and line.",
+    span: "md:col-span-2",
+  },
+  {
+    half: "Ask",
+    title: "Conversations that continue",
+    body: "Follow-up questions keep their context, and past conversations can be reopened.",
+  },
+  {
+    half: "Scan",
+    title: "Mapped to ISO 27001",
+    body: "Findings land on real Annex A control IDs, not a vague category.",
+  },
+  {
+    half: "Scan",
+    title: "AI that suggests, never decides",
+    body: "It validates a finding against your standards and can draft a diff — but it cannot mark anything compliant.",
+  },
+  {
+    half: "Scan",
+    title: "Only a human verifies",
+    body: "Verified status requires a person and a written justification, recorded as an audit trail.",
+  },
+  {
+    half: "Scan",
+    title: "Printable evidence reports",
+    body: "Severity, status and framework coverage in a report that survives being printed — with no invented compliance score anywhere in it.",
+    span: "md:col-span-2",
+  },
+  {
+    half: "Both",
+    title: "Light, dark, keyboard, print",
+    body: "One design system, two themes, reduced-motion honoured throughout.",
+  },
 ];
 
 export default function SectionFeatures() {
   return (
-    <section id="features" className="mx-auto w-full max-w-6xl px-4 py-20 sm:px-8">
-      <div className="grid items-center gap-14 lg:grid-cols-2">
+    <section
+      id="features"
+      className="mx-auto w-full max-w-7xl scroll-mt-24 px-4 py-20 sm:px-8 sm:py-24"
+    >
+      <div className="max-w-3xl">
+        <RevealText as="h2" className="font-display text-h2 font-semibold text-foreground">
+          Two halves of the same job.
+        </RevealText>
         <Reveal>
-          <Eyebrow>Features</Eyebrow>
-          <h2 className="font-display mt-3 text-3xl leading-tight font-bold text-foreground sm:text-4xl">
-            Get grounded answers, not guesses
-          </h2>
-          <p className="mt-4 text-base leading-relaxed text-muted">
-            Every response streams back live as the system retrieves, checks its own evidence,
-            and grounds the final answer — you can watch it reason.
+          <p className="measure text-lead mt-6 text-muted">
+            One side answers questions about the standards. The other checks your code against
+            them. Both refuse to claim anything they can&rsquo;t show you the evidence for.
           </p>
-          <div className="mt-6 flex items-center gap-8">
-            {STATS.map((stat, i) => (
-              <div key={stat.label} className={i > 0 ? "border-l border-surface-border pl-8" : ""}>
-                <p className="font-display text-2xl font-bold text-foreground">
-                  {stat.value}
-                </p>
-                <p className="text-xs text-muted">{stat.label}</p>
-              </div>
-            ))}
-          </div>
-          <Link
-            href="/chat"
-            className="mt-7 inline-block rounded-full bg-cta px-7 py-3.5 text-sm font-semibold text-accent-foreground shadow-sm transition-transform hover:scale-105"
-          >
-            Try it now
-          </Link>
         </Reveal>
+      </div>
 
-        <AnimatedConversation className="flex flex-col gap-4">
-          <div className="flex items-end gap-2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface">
-              <Logo className="h-4 w-4 text-accent" />
-            </span>
-            <div className="max-w-[80%] rounded-3xl rounded-bl-md bg-surface px-4 py-2.5 text-sm text-foreground">
-              Hi! I&apos;m interested in whether our access control policy meets ISO 27001.
+      <div className="mt-12 grid gap-4 md:grid-cols-3">
+        {TILES.map((tile, index) => (
+          <Reveal key={tile.title} delay={(index % 3) * 0.06} className={tile.span}>
+            <div className="card-interactive flex h-full flex-col rounded-3xl border border-surface-border bg-surface p-6">
+              <span
+                className={`mb-4 w-fit rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                  tile.half === "Scan"
+                    ? "bg-mark-soft text-foreground"
+                    : tile.half === "Ask"
+                      ? "bg-accent-soft text-accent"
+                      : "bg-surface-raised text-muted"
+                }`}
+              >
+                {tile.half}
+              </span>
+              <h3 className="font-display text-lg leading-snug font-semibold text-foreground">
+                {tile.title}
+              </h3>
+              <p className="mt-2 text-sm leading-relaxed text-muted">{tile.body}</p>
             </div>
-          </div>
-          <div className="ml-auto flex items-end gap-2">
-            <div className="max-w-[80%] rounded-3xl rounded-br-md bg-cta px-4 py-2.5 text-sm text-white">
-              Annex A.5.15 requires role-based access limited to what&apos;s necessary — I can
-              check your current policy against it.
-            </div>
-            <span className="h-8 w-8 shrink-0 rounded-full bg-surface-blue" />
-          </div>
-        </AnimatedConversation>
+          </Reveal>
+        ))}
       </div>
     </section>
   );

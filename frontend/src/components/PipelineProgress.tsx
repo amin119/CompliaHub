@@ -16,6 +16,7 @@ function StepIcon({ state }: { state: "done" | "failed" | "active" | "pending" }
       <motion.svg
         viewBox="0 0 16 16"
         fill="none"
+        aria-hidden="true"
         className="h-3.5 w-3.5"
         initial={{ scale: 0.5, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -33,7 +34,7 @@ function StepIcon({ state }: { state: "done" | "failed" | "active" | "pending" }
   }
   if (state === "failed") {
     return (
-      <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="h-3.5 w-3.5">
         <path
           d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"
           stroke="currentColor"
@@ -102,14 +103,19 @@ export default function PipelineProgress({ stages }: { stages: PipelineStage[] }
                   scale: isActive ? 1.1 : 1,
                 }}
                 transition={{ duration: 0.2 }}
-                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 bg-background transition-colors duration-300 ${
+                // Each state carries its own background. A shared
+                // `bg-background` in the base string competed with the done
+                // state's `bg-accent` at equal specificity and won, which
+                // left the completed step's white checkmark drawn on the
+                // page's own white ground — invisible.
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-300 ${
                   isFailed
-                    ? "border-red-400 text-red-500"
+                    ? "border-red-400 bg-background text-red-500"
                     : isDone
-                      ? "border-accent bg-accent text-accent-foreground"
+                      ? "border-accent bg-accent text-accent-contrast"
                       : isActive
-                        ? "border-accent text-accent"
-                        : "border-surface-border text-muted"
+                        ? "border-accent bg-background text-accent"
+                        : "border-surface-border bg-background text-muted"
                 }`}
               >
                 <StepIcon state={state} />

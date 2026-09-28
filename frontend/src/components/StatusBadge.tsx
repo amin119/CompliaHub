@@ -17,8 +17,11 @@ export default function StatusBadge({ status }: { status: string }) {
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${style.text}`}>
       <span className="relative flex h-1.5 w-1.5">
+        {/* motion-safe: the pulse is ambient, not user-triggered, so it has
+            to stop under prefers-reduced-motion like every other ambient
+            animation in the product. */}
         {inFlight && (
-          <span className={`absolute inline-flex h-full w-full animate-ping rounded-full ${style.dot} opacity-60`} />
+          <span className={`absolute inline-flex h-full w-full rounded-full motion-safe:animate-ping ${style.dot} opacity-60`} />
         )}
         <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${style.dot}`} />
       </span>

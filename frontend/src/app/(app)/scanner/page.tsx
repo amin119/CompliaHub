@@ -7,6 +7,8 @@ import { uploadScan, getScan, listScans, type ScanStatus } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
 import UploadDropzone from "@/components/UploadDropzone";
 import Skeleton from "@/components/Skeleton";
+import PageHeader from "@/components/PageHeader";
+import { CHIP_BASE } from "@/lib/ui";
 
 const TERMINAL_STATUSES = ["ready", "failed"];
 const POLL_INTERVAL_MS = 3000;
@@ -25,7 +27,7 @@ function formatSize(bytes: number | null): string {
 
 function RepoIcon({ className = "" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={className}>
       <path
         d="M6 3.5h9l3 3V19a1.5 1.5 0 0 1-1.5 1.5h-10.5A1.5 1.5 0 0 1 4.5 19V5A1.5 1.5 0 0 1 6 3.5Z"
         stroke="currentColor"
@@ -98,17 +100,15 @@ export default function ScannerPage() {
   return (
     <div className="flex flex-1 flex-col items-center bg-background">
       <div className="flex w-full max-w-2xl flex-1 flex-col px-4 py-6 sm:py-8">
-        <header className="mb-6">
-          <h1 className="font-display text-2xl font-normal tracking-tight text-foreground">
-            Scanner
-          </h1>
-          <p className="text-sm text-muted">
-            Upload a repository (as a .zip) to inventory its languages, frameworks, and
-            files — the foundation technical evidence for compliance analysis is drawn from.
-            This is an evidence inventory, not a compliance verdict: nothing here claims your
-            repository is or isn&apos;t compliant with any standard.
-          </p>
-        </header>
+        <PageHeader
+          icon={<RepoIcon className="h-5 w-5" />}
+          title="Scanner"
+          description="Upload a repository (as a .zip) to check it for security, GDPR, and AI-governance findings — mapped to ISO 27001, with every finding pinned to a real file and line."
+        />
+        <p className="-mt-3 mb-6 text-xs text-muted">
+          This is an evidence inventory, not a compliance verdict: nothing here claims your
+          repository is or isn&apos;t compliant with any standard.
+        </p>
 
         <UploadDropzone
           accept=".zip"
@@ -138,17 +138,24 @@ export default function ScannerPage() {
             ))}
           </div>
         ) : scans.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-surface-border py-10 text-center">
-            <RepoIcon className="h-8 w-8 text-muted opacity-60" />
-            <p className="text-sm text-muted">No repositories scanned yet.</p>
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-surface-border py-12 text-center">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-accent-soft text-accent ring-8 ring-accent-soft/40">
+              <RepoIcon className="h-6 w-6" />
+            </span>
+            <div>
+              <p className="text-sm font-medium text-foreground">No repositories scanned yet</p>
+              <p className="mt-0.5 text-sm text-muted">Upload a .zip above to run the first one.</p>
+            </div>
           </div>
         ) : (
-          <motion.ul
-            className="flex flex-col gap-3"
-            variants={listVariants}
-            initial="hidden"
-            animate="show"
-          >
+          <>
+            <p className="mb-3 text-xs font-medium text-muted">Scanned repositories ({scans.length})</p>
+            <motion.ul
+              className="flex flex-col gap-3"
+              variants={listVariants}
+              initial="hidden"
+              animate="show"
+            >
             <AnimatePresence initial={false}>
               {scans.map((scan) => (
                 <motion.li
@@ -162,7 +169,7 @@ export default function ScannerPage() {
                 >
                   <Link
                     href={`/scanner/${scan.id}`}
-                    className="card-interactive block rounded-2xl border border-surface-border bg-surface p-4 hover:border-accent/40"
+                    className="card-interactive block rounded-2xl border border-surface-border bg-surface-raised p-4 hover:border-accent/40"
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
@@ -177,11 +184,11 @@ export default function ScannerPage() {
                       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-surface-border pt-3 text-xs text-muted">
                         <span>{scan.file_count} files</span>
                         <span>{formatSize(scan.total_size_bytes)}</span>
+                        {/* Neutral chips, not accent-tinted: inside a card
+                            that's entirely a link, accent has to keep meaning
+                            "this is the thing you click". */}
                         {scan.detected_languages.slice(0, 4).map((language) => (
-                          <span
-                            key={language}
-                            className="rounded-full bg-accent-soft px-2 py-0.5 text-accent"
-                          >
+                          <span key={language} className={CHIP_BASE}>
                             {language}
                           </span>
                         ))}
@@ -196,7 +203,8 @@ export default function ScannerPage() {
                 </motion.li>
               ))}
             </AnimatePresence>
-          </motion.ul>
+            </motion.ul>
+          </>
         )}
       </div>
     </div>

@@ -52,7 +52,10 @@ export default function UploadDropzone({
       onDrop={handleDrop}
       animate={dragActive ? { scale: 1.015 } : { scale: 1 }}
       transition={{ duration: 0.15, ease: "easeOut" }}
-      className={`group relative mb-6 flex cursor-pointer flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl border-2 border-dashed p-10 text-sm transition-colors duration-200 ${
+      // `has-[:focus-visible]` puts the focus ring on the zone itself: the
+      // file input is visually hidden but still focusable, so keyboard users
+      // need to see where they are.
+      className={`group relative mb-6 flex cursor-pointer flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl border-2 border-dashed p-10 text-sm transition-colors duration-200 has-[:focus-visible]:border-accent has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-soft ${
         dragActive
           ? "border-accent bg-accent-soft text-accent"
           : uploading
@@ -91,7 +94,7 @@ export default function UploadDropzone({
             : { duration: 0.15 }
         }
       >
-        <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-accent">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="h-5 w-5 text-accent">
           {uploading ? (
             <motion.path
               d="M12 4a8 8 0 1 0 8 8"
@@ -121,12 +124,15 @@ export default function UploadDropzone({
         {hint && !uploading && <span className="text-xs text-muted">{hint}</span>}
       </div>
 
+      {/* `sr-only`, not `hidden`: `display: none` takes the input out of the
+          tab order entirely, which left the whole upload flow unreachable by
+          keyboard. */}
       <input
         type="file"
         accept={accept}
         onChange={handleChange}
         disabled={uploading}
-        className="hidden"
+        className="sr-only"
       />
     </motion.label>
   );
